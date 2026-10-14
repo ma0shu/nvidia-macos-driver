@@ -56,7 +56,9 @@ jobs:
         with:
           name: rtx6000-smallbar-${{ github.run_number }}
           path: |
-            build-out/
+            build-out/logs/
+            build-out/kexts/
+            build-out/build-proof.json
             .deps/open-gpu-kernel-modules/src/nvidia/_out/Darwin_x86_64/ci-*.txt
             .deps/open-gpu-kernel-modules/src/nvidia-modeset/_out/Darwin_x86_64/ci-*.txt
           if-no-files-found: warn

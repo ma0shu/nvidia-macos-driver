@@ -42,11 +42,14 @@ def run(args, cwd=None, log=None):
 
 def export_vendor(root, vendor, component, out):
     directory = vendor / "src" / component
+    generated = directory / "_out/Darwin_x86_64"
+    generated.mkdir(parents=True, exist_ok=True)
+    cc = run(["xcrun", "--find", "clang"])
+    cxx = run(["xcrun", "--find", "clang++"])
     run(["gmake", "-f", "Makefile", "-f", str(root / "ci/export-nvidia.mk"),
          "ci-export", "TARGET_OS=Darwin", "TARGET_ARCH=x86_64",
-         "CC=xcrun clang", "CXX=xcrun clang++"], cwd=directory,
+         "CC=" + cc, "CXX=" + cxx], cwd=directory,
         log=out / "logs" / f"{component}-make-export.log")
-    generated = directory / "_out/Darwin_x86_64"
     flags = shlex.split((generated / "ci-cflags.txt").read_text())
     sources = shlex.split((generated / "ci-sources.txt").read_text())
     spdm_sources = set(shlex.split((generated / "ci-libspdm-sources.txt").read_text()))
