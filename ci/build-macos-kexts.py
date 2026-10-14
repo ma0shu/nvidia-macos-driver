@@ -34,7 +34,11 @@ def run(args, cwd=None, log=None):
         with log.open("w") as f:
             p = subprocess.run(args, cwd=cwd, stdout=f, stderr=subprocess.STDOUT)
         if p.returncode:
-            print(log.read_text(errors="replace")[-9000:], flush=True)
+            contents = log.read_text(errors="replace")
+            errors = [line for line in contents.splitlines()
+                      if any(term in line.lower() for term in ("error:", "fatal", "unsupported", "undefined"))]
+            print("\n".join(errors[:30]), flush=True)
+            print(contents[-4000:], flush=True)
             raise RuntimeError(f"Command failed ({p.returncode}); log: {log}")
         return ""
     try:
