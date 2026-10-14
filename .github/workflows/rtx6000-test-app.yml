@@ -1,0 +1,43 @@
+name: RTX6000 paired test installer app
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-app:
+    runs-on: macos-15-intel
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+      - name: Select Intel macOS toolchain
+        run: |
+          test "$(uname -m)" = x86_64
+          if [ -d /Applications/Xcode_16.4.app ]; then
+            sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+          fi
+          xcodebuild -version
+      - name: Build and sign the paired offline app
+        run: |
+          bash app/build.sh "$GITHUB_WORKSPACE/app-build"
+          mv app-build/1401.app app-build/1401-RTX6000-Test.app
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleName 1401 RTX6000 Test' app-build/1401-RTX6000-Test.app/Contents/Info.plist
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName 1401 RTX6000 Test' app-build/1401-RTX6000-Test.app/Contents/Info.plist
+          codesign --force --deep -s - app-build/1401-RTX6000-Test.app
+          codesign --verify --deep --strict app-build/1401-RTX6000-Test.app
+          xcrun lipo app-build/1401-RTX6000-Test.app/Contents/MacOS/1401 -verify_arch x86_64
+          ditto -c -k --sequesterRsrc --keepParent app-build/1401-RTX6000-Test.app app-build/1401-Mac-1.15.0-RTX6000-Test.zip
+          shasum -a 256 app-build/1401-Mac-1.15.0-RTX6000-Test.zip > app-build/AppSHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 1401-rtx6000-test-app
+          path: |
+            app-build/1401-Mac-1.15.0-RTX6000-Test.zip
+            app-build/AppSHA256SUMS.txt
+          retention-days: 14
+          if-no-files-found: error
