@@ -59,6 +59,8 @@ def export_vendor(root, vendor, component, out):
          "CC=" + cc, "CXX=" + cxx, "EXTRA_CFLAGS=-DNV_UNIX"], cwd=directory,
         log=out / "logs" / f"{component}-make-export.log")
     flags = shlex.split((generated / "ci-cflags.txt").read_text())
+    cc_flags = shlex.split((generated / "ci-cc-only-cflags.txt").read_text())
+    cxx_flags = shlex.split((generated / "ci-cxx-only-cflags.txt").read_text())
     sources = shlex.split((generated / "ci-sources.txt").read_text())
     spdm_sources = set(shlex.split((generated / "ci-libspdm-sources.txt").read_text()))
     spdm_flags = shlex.split((generated / "ci-libspdm-cflags.txt").read_text())
@@ -66,7 +68,7 @@ def export_vendor(root, vendor, component, out):
     (generated / "g_nvid_string.c").write_text(
         f'const char {idname}[] = "nvidia id: NVIDIA UNIX Open Kernel Module for x86_64 610.57.04 Research Build (yuanjing-hash)";\n'
         f'const char *const p{idname} = {idname} + 11;\n')
-    return directory, flags, sources, spdm_sources, spdm_flags
+    return directory, flags, sources, spdm_sources, spdm_flags, cc_flags, cxx_flags
 
 
 def compile_one(source, directory, flags, out, label):
@@ -84,12 +86,13 @@ def compile_one(source, directory, flags, out, label):
 
 
 def build_archive(component, exported, common, out, jobs):
-    directory, flags, sources, spdm_sources, spdm_flags = exported
+    directory, flags, sources, spdm_sources, spdm_flags, cc_flags, cxx_flags = exported
     objects = []
     commands = []
     for source in sources:
         extra = spdm_flags if source in spdm_sources else []
-        commands.append((source, directory, [*flags, *common, *extra], out, component))
+        language_flags = cxx_flags if Path(source).suffix in (".cpp", ".cc", ".cxx") else cc_flags
+        commands.append((source, directory, [*flags, *language_flags, *common, *extra], out, component))
     print(f"Compiling {component}: {len(commands)} sources", flush=True)
     with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
         futures = {pool.submit(compile_one, *command): command[0] for command in commands}
@@ -115,7 +118,7 @@ def build_archive(component, exported, common, out, jobs):
 
 
 def native_flags(exported, sdk, headers, resource, root, vendor, experiment):
-    directory, exported_flags, _, _, _ = exported
+    directory, exported_flags = exported[:2]
     retained = []
     arguments = iter(exported_flags)
     for flag in arguments:
@@ -201,12 +204,12 @@ def main():
     for name in ["NVRM.cpp", "os-xnu.cpp", "os-xnu2.cpp", "os-nvkms-xnu.cpp",
                  "nv_xnu_stubs.cpp", "nvrm_fbinfo.cpp", "nvrm_gpuva.cpp", "nvrm_surfshare.cpp"]:
         native_objects.append(compile_one("kexts/NVRM/" + name, root, native, out, "NVRM"))
-    rm_directory, rm_flags, _, _, _ = rm
+    rm_directory, rm_flags, _, _, _, rm_cc_flags, _ = rm
     native_objects.append(compile_one(str(root / "kexts/NVRM/nvrm_pageoff.c"), rm_directory,
-                                      [*rm_flags, *common], out, "NVRM"))
-    kms_directory, kms_flags, _, _, _ = kms
+                                      [*rm_flags, *rm_cc_flags, *common], out, "NVRM"))
+    kms_directory, kms_flags, _, _, _, kms_cc_flags, _ = kms
     native_objects.append(compile_one(str(root / "kexts/NVRM/nvrm_kapi_fields.c"), kms_directory,
-                                      [*kms_flags, *common], out, "NVRM"))
+                                      [*kms_flags, *kms_cc_flags, *common], out, "NVRM"))
     link_kext("NVRM", native_objects, [kms_archive, rm_archive], root / "kexts/NVRM/Info.plist", sdk, out)
     proof["status"] = "KEXTS_COMPILED_HARDWARE_NOT_TESTED"
     proof["binaries"] = {p.parent.parent.parent.name: digest(p)
