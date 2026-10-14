@@ -37,7 +37,11 @@ def run(args, cwd=None, log=None):
             print(log.read_text(errors="replace")[-9000:], flush=True)
             raise RuntimeError(f"Command failed ({p.returncode}); log: {log}")
         return ""
-    return subprocess.check_output(args, cwd=cwd, text=True, stderr=subprocess.STDOUT).strip()
+    try:
+        return subprocess.check_output(args, cwd=cwd, text=True, stderr=subprocess.STDOUT).strip()
+    except subprocess.CalledProcessError as e:
+        print(e.output[-9000:], flush=True)
+        raise
 
 
 def export_vendor(root, vendor, component, out):
@@ -143,7 +147,7 @@ def link_kext(name, objects, archives, plist, sdk, out):
         log=out / "logs" / (name + "-link.log"))
     shutil.copy2(plist, bundle / "Contents/Info.plist")
     plistlib.loads((bundle / "Contents/Info.plist").read_bytes())
-    run(["xcrun", "lipo", "-verify_arch", "x86_64", str(binary)])
+    run(["xcrun", "lipo", str(binary), "-verify_arch", "x86_64"])
     description = run(["file", str(binary)])
     if "kext bundle" not in description:
         raise RuntimeError(f"Unexpected binary format: {description}")
