@@ -52,7 +52,7 @@ def export_vendor(root, vendor, component, out):
     cxx = run(["xcrun", "--find", "clang++"])
     run(["gmake", "-f", "Makefile", "-f", str(root / "ci/export-nvidia.mk"),
          "ci-export", "TARGET_OS=Darwin", "TARGET_ARCH=x86_64",
-         "CC=" + cc, "CXX=" + cxx], cwd=directory,
+         "CC=" + cc, "CXX=" + cxx, "EXTRA_CFLAGS=-DNV_UNIX"], cwd=directory,
         log=out / "logs" / f"{component}-make-export.log")
     flags = shlex.split((generated / "ci-cflags.txt").read_text())
     sources = shlex.split((generated / "ci-sources.txt").read_text())
@@ -166,6 +166,8 @@ def main():
     root = Path(__file__).resolve().parents[1]
     vendor = args.vendor.resolve()
     out = args.output.resolve()
+    if out == root or not out.is_relative_to(root):
+        raise RuntimeError("Output must be a build directory inside this checkout")
     out.mkdir(parents=True, exist_ok=True)
     if run(["git", "rev-parse", "HEAD"], cwd=vendor) != NVIDIA_COMMIT:
         raise RuntimeError("NVIDIA source commit mismatch")

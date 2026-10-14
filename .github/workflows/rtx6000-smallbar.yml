@@ -50,6 +50,8 @@ jobs:
           flags=()
           if [ "$ENABLE_EXPERIMENT" = true ]; then flags+=(--experiment); fi
           python3 ci/build-macos-kexts.py --vendor .deps/open-gpu-kernel-modules --output build-out --jobs 4 "${flags[@]}"
+      - name: Package the compiled experiment
+        run: python3 ci/package-experiment.py --output build-out
       - name: Preserve build products and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -59,6 +61,8 @@ jobs:
             build-out/logs/
             build-out/kexts/
             build-out/build-proof.json
+            build-out/nullmoth-1.15.0-rtx6000-*.tar.gz
+            build-out/SHA256SUMS.txt
             .deps/open-gpu-kernel-modules/src/nvidia/_out/Darwin_x86_64/ci-*.txt
             .deps/open-gpu-kernel-modules/src/nvidia-modeset/_out/Darwin_x86_64/ci-*.txt
           if-no-files-found: warn
