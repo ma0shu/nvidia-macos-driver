@@ -107,9 +107,16 @@ def build_archive(component, exported, common, out, jobs):
 
 
 def native_flags(exported, sdk, headers, resource, root, vendor, experiment):
-    _, exported_flags, _, _, _ = exported
-    retained = [f for f in exported_flags if f.startswith("-I") or
-                (f.startswith("-D") and f not in ("-DNVRM", "-D_LANGUAGE_C", "-D__NO_CTYPE"))]
+    directory, exported_flags, _, _, _ = exported
+    retained = []
+    arguments = iter(exported_flags)
+    for flag in arguments:
+        if flag == "-I":
+            retained.append("-I" + str((directory / next(arguments)).resolve()))
+        elif flag.startswith("-I"):
+            retained.append("-I" + str((directory / flag[2:]).resolve()))
+        elif flag.startswith("-D") and flag not in ("-DNVRM", "-D_LANGUAGE_C", "-D__NO_CTYPE"):
+            retained.append(flag)
     rm = vendor / "src/nvidia"
     kms = vendor / "src/nvidia-modeset"
     includes = [root / "kexts/NVRM", rm / "arch/nvalloc/unix/include", rm / "generated",
