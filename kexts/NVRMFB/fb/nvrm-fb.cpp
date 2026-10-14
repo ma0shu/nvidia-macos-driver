@@ -2328,9 +2328,13 @@ bool NVRMNVDAFramebuffer::verifyAperture(NvU64 phys, const char *label)
     k[0x1000 / 4] = SIG1;
     k[0x2000 / 4] = SIG2;
     __asm__ volatile("mfence" ::: "memory");
-    if (k[0x1000 / 4] != SIG1 || k[0x2000 / 4] != SIG2) {
-        FBLOG("verifyAperture(%s): CONTROL FAILED -- the write never landed through fKva; "
-              "the readback says nothing about the address", label);
+    const UInt32 kernelRead1 = k[0x1000 / 4];
+    const UInt32 kernelRead2 = k[0x2000 / 4];
+    if (kernelRead1 != SIG1 || kernelRead2 != SIG2) {
+        FBLOG("verifyAperture(%s): CONTROL FAILED -- phys 0x%llx size %llu "
+              "+0x1000=%08x (expected %08x) +0x2000=%08x (expected %08x); "
+              "the readback says nothing about the address", label, phys, fMemBytes,
+              kernelRead1, SIG1, kernelRead2, SIG2);
         return false;
     }
     IODeviceMemory *dm = apertureFor(phys, 0x4000);
