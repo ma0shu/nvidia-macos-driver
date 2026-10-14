@@ -202,7 +202,8 @@ def main():
     kms_archive = build_archive("nvidia-modeset", kms, common, out, args.jobs)
     native_objects = []
     for name in ["NVRM.cpp", "os-xnu.cpp", "os-xnu2.cpp", "os-nvkms-xnu.cpp",
-                 "nv_xnu_stubs.cpp", "nvrm_fbinfo.cpp", "nvrm_gpuva.cpp", "nvrm_surfshare.cpp"]:
+                 "nv_xnu_stubs.cpp", "nvrm_fbinfo.cpp", "nvrm_gpuva.cpp", "nvrm_surfshare.cpp",
+                 "nvkms_shaders.cpp"]:
         native_objects.append(compile_one("kexts/NVRM/" + name, root, native, out, "NVRM"))
     rm_directory, rm_flags, _, _, _, rm_cc_flags, _ = rm
     native_objects.append(compile_one(str(root / "kexts/NVRM/nvrm_pageoff.c"), rm_directory,

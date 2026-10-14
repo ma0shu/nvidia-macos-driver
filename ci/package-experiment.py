@@ -3,11 +3,13 @@
 import argparse
 import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+import posixpath
 import shutil
 import struct
 import tarfile
 import urllib.request
+from importlib.machinery import SourceFileLoader
 
 STOCK_URL = "https://github.com/nullmoth/nvidia-macos-driver/releases/download/v1.15.0/nullmoth-nvidia-1.15.0.tar.gz"
 STOCK_SHA256 = "6101cf8c37e4a500059ea8ce4d9f131ea107e35ccbeafcbb124d78a97e37e3ec"
@@ -19,6 +21,17 @@ def digest(path):
         for b in iter(lambda: f.read(1024 * 1024), b""):
             h.update(b)
     return h.hexdigest()
+
+
+def package_filter(member, destination):
+    # The stock installer places pkgroot/Library at /Library. Keep those link
+    # relationships relative inside staging so extraction never escapes it.
+    if member.issym() and PurePosixPath(member.linkname).is_absolute():
+        target = PurePosixPath("pkgroot") / member.linkname.lstrip("/")
+        if target.parts[:2] != ("pkgroot", "Library"):
+            raise tarfile.FilterError(f"Unexpected absolute package link: {member.name}")
+        member = member.replace(linkname=posixpath.relpath(str(target), posixpath.dirname(member.name)))
+    return tarfile.data_filter(member, destination)
 
 
 def main():
@@ -48,8 +61,10 @@ def main():
         raise SystemExit("Package staging directory must be fresh.")
     stage.mkdir()
     with tarfile.open(stock, "r:gz") as tf:
-        tf.extractall(stage, filter="data")
+        tf.extractall(stage, filter=package_filter)
     package = stage / "pkgroot"
+    verifier = SourceFileLoader("verify_kext_imports", str(root / "ci/verify-kext-imports.py")).load_module()
+    verifier.verify_imports(out / "kexts", package / "Library/Extensions", out / "logs/import-validation.json")
     for name in ("NVRM", "NVRMFB"):
         target = (package / "Library/Extensions" / (name + ".kext")).resolve()
         if not target.is_relative_to(package.resolve()) or target.name != name + ".kext":
