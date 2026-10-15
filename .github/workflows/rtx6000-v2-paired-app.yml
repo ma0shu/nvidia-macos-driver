@@ -1,0 +1,58 @@
+name: RTX6000 2.0.2 paired offline installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      package_sha256:
+        description: SHA-256 of the final experimental archive
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-app:
+    runs-on: macos-15-intel
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+      - name: Select Intel macOS toolchain
+        run: |
+          test "$(uname -m)" = x86_64
+          if [ -d /Applications/Xcode_16.4.app ]; then
+            sudo xcode-select -s /Applications/Xcode_16.4.app
+          fi
+          xcodebuild -version
+      - name: Bind the exact experimental driver checksum
+        env:
+          TEST_PACKAGE_SHA256: ${{ inputs.package_sha256 }}
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, re
+          value = os.environ['TEST_PACKAGE_SHA256']
+          assert re.fullmatch('[0-9a-f]{64}', value), 'Invalid package checksum'
+          path = pathlib.Path('app/Sources/main.swift')
+          source = path.read_text()
+          assert source.count('__EXPERIMENT_PACKAGE_SHA256__') == 1
+          path.write_text(source.replace('__EXPERIMENT_PACKAGE_SHA256__', value))
+          PY
+      - name: Build and verify the paired app
+        run: |
+          bash app/build.sh "$GITHUB_WORKSPACE/app-build"
+          mv app-build/1401.app app-build/1401-RTX6000-Contig2-Test.app
+          codesign --verify --deep --strict app-build/1401-RTX6000-Contig2-Test.app
+          xcrun lipo app-build/1401-RTX6000-Contig2-Test.app/Contents/MacOS/1401 -verify_arch x86_64
+          ditto -c -k --sequesterRsrc --keepParent app-build/1401-RTX6000-Contig2-Test.app app-build/1401-Mac-2.0.2-RTX6000-Contig2-Test.zip
+          shasum -a 256 app-build/1401-Mac-2.0.2-RTX6000-Contig2-Test.zip > app-build/AppSHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 1401-rtx6000-contig2-test-app
+          path: |
+            app-build/1401-Mac-2.0.2-RTX6000-Contig2-Test.zip
+            app-build/AppSHA256SUMS.txt
+          retention-days: 14
+          if-no-files-found: error

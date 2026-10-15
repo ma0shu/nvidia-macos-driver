@@ -1,0 +1,40 @@
+--- a/src/nvidia-modeset/src/nvkms-surface.c
++++ b/src/nvidia-modeset/src/nvkms-surface.c
+@@ -428,24 +428,30 @@
+                             &surfaceInfoParams,
+                             sizeof(surfaceInfoParams));
+     if (status != NV_OK) {
+-        nvEvoLogDevDebug(pDevEvo, EVO_LOG_ERROR,
+-                         "Failed to get surface information of RM memory object 0x%x",
+-                         rmHandle);
++        nvEvoLogDev(pDevEvo, EVO_LOG_ERROR,
++            "NVRM-xnu: SCANOUT-DIAG surface-info failed: status=0x%x handle=0x%x requireVidmem=%u",
++            status, rmHandle, requireVidmem);
+         return FALSE;
+     }
+ 
+     memSize = NvU64_BUILD(surfaceInfo[PHYS_SIZE_HI].data,
+                           surfaceInfo[PHYS_SIZE_LO].data);
+     if (memSize < rmObjectSizeInBytes) {
+-        nvEvoLogDevDebug(pDevEvo, EVO_LOG_ERROR,
+-                         "Memory allocated is not large enough for the surface");
++        nvEvoLogDev(pDevEvo, EVO_LOG_ERROR,
++            "NVRM-xnu: SCANOUT-DIAG allocation too small: actual=%llu requested=%llu",
++            (unsigned long long)memSize, (unsigned long long)rmObjectSizeInBytes);
+         return FALSE;
+     }
+ 
+     if (requireVidmem &&
+         surfaceInfo[ADDR_SPACE_TYPE].data != NV0000_CTRL_CMD_CLIENT_GET_ADDR_SPACE_TYPE_VIDMEM) {
+-        nvEvoLogDevDebug(pDevEvo, EVO_LOG_ERROR,
+-                         "Memory used for surface not appropriate for scanout");
++        nvEvoLogDev(pDevEvo, EVO_LOG_ERROR,
++            "NVRM-xnu: SCANOUT-DIAG address-space rejected: requireVidmem=%u addrSpace=%u "
++            "expectedVidmem=%u isoType=%u isSOC=%u noHW=%u actual=%llu requested=%llu",
++            requireVidmem, surfaceInfo[ADDR_SPACE_TYPE].data,
++            NV0000_CTRL_CMD_CLIENT_GET_ADDR_SPACE_TYPE_VIDMEM,
++            pRequest->isoType, pDevEvo->isSOCDisplay, pRequest->noDisplayHardwareAccess,
++            (unsigned long long)memSize, (unsigned long long)rmObjectSizeInBytes);
+         return FALSE;
+     }
+ 

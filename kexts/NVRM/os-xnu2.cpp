@@ -1062,6 +1062,18 @@ NV_STATUS NV_API_CALL nv_alloc_pages(nv_state_t *nv, NvU32 page_count, NvU64 pag
     if (!md) { kprintf("NVRM-xnu:   inTaskWithPhysicalMask FAILED (%llu KB, page 0x%llx, contig %u, cache %u)\n",
                        bytes >> 10, page_size, (unsigned)contiguous, cache_type); return NV_ERR_NO_MEMORY; }
     if (md->prepare() != kIOReturnSuccess) { kprintf("NVRM-xnu:   prepare FAILED\n"); md->release(); return NV_ERR_NO_MEMORY; }
+#if defined(NVKMS_XNU_CONTIG_SCANOUT_EXPERIMENT)
+    if (contiguous) {
+        IOByteCount physicalSpan = 0;
+        const addr64_t physicalBase = md->getPhysicalSegment(0, &physicalSpan, kIOMemoryMapperNone);
+        if (!physicalBase || physicalSpan < bytes) {
+            kprintf("NVRM-xnu: contiguous allocation verification FAILED: requested %llu bytes, span %llu\n",
+                    bytes, (NvU64)physicalSpan);
+            md->complete(); md->release();
+            return NV_ERR_NO_MEMORY;
+        }
+    }
+#endif
     void *va = md->getBytesNoCopy();
     if (zeroed && va) nvx2_memset(va, 0, (size_t)bytes);
     NvU32 n = contiguous ? 1 : page_count;

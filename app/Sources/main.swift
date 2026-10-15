@@ -10,9 +10,9 @@ import UniformTypeIdentifiers
 
 struct Package {
     static let version = "2.0.2"
-    static let name = "nullmoth-nvidia-2.0.2.tar.gz"
+    static let name = "nullmoth-2.0.2-rtx6000-contiguous-experiment.tar.gz"
     static let url = URL(string: "https://github.com/nullmoth/nvidia-macos-driver/releases/download/v2.0.2/nullmoth-nvidia-2.0.2.tar.gz")!
-    static let sha256 = "acf939c2829ae31a1840866cefc814c4b819168da1eb5f1ea257ea3e63e8753d"
+    static let sha256 = "__EXPERIMENT_PACKAGE_SHA256__"
 }
 let uploadPage = URL(string: "https://nullmothsystems.com/#send")!
 let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("NullMoth")
@@ -374,7 +374,7 @@ final class App: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKUIDe
         web.setValue(false, forKey: "drawsBackground")
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 880, height: 800),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "1401"; window.backgroundColor = .black; window.contentView = web; window.center()
+        window.title = "1401 — RTX6000 CONTIG TEST 2.0.2"; window.backgroundColor = .black; window.contentView = web; window.center()
         window.makeKeyAndOrderFront(nil)
         web.loadFileURL(res.appendingPathComponent("index.html"), allowingReadAccessTo: res)
         NSApp.activate(ignoringOtherApps: true)
@@ -551,6 +551,12 @@ final class App: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKUIDe
         var c = ((try? fm.contentsOfDirectory(atPath: "/Volumes")) ?? []).map { URL(fileURLWithPath: "/Volumes/\($0)/NullMoth/\(Package.name)") }
         c.append(fm.urls(for: .downloadsDirectory, in: .userDomainMask)[0].appendingPathComponent(Package.name))
         c.append(support.appendingPathComponent(Package.name))
+        c.append(Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent(Package.name))
+        c += ((try? fm.contentsOfDirectory(atPath: "/Volumes")) ?? []).flatMap { volume in
+            ["NullMoth/RTX6000-Test", "NullMoth/02-Patched"].map {
+                URL(fileURLWithPath: "/Volumes/\(volume)/\($0)/\(Package.name)")
+            }
+        }
         return c.filter { fm.fileExists(atPath: $0.path) }.map { u in
             ["path": u.path, "where": u.path.hasPrefix("/Volumes/") ? "the 1401 stick or disk image" : u.path.contains("/Downloads/") ? "Downloads" : "an earlier download",
              "ok": sha256(u) == Package.sha256 ? "yes" : "no"]
@@ -589,6 +595,8 @@ final class App: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKUIDe
     }
     func installedDriverVersion() -> String { App.recordedDriverVersion() }
     func checkUpdate() {
+        send("upd", ["state": "error", "why": "RTX6000 test installer: use the paired offline archive beside this app or in Downloads; automatic official updates are disabled."]); return
+
         let api = URL(string: "https://api.github.com/repos/nullmoth/nvidia-macos-driver/releases/latest")!
         var rq = URLRequest(url: api); rq.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept"); rq.timeoutInterval = 30
         URLSession.shared.dataTask(with: rq) { data, resp, err in
@@ -644,10 +652,14 @@ final class App: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKUIDe
         task.resume()
     }
     func updateDriver(efi: String) {
+        send("upd", ["state": "error", "why": "RTX6000 test installer: use the paired offline archive beside this app or in Downloads; automatic official updates are disabled."]); return
+
         guard let l = latest else { send("upd", ["state": "error", "why": "check for an update first"]); return }
         startDownload(name: l.name, sha: l.sha, url: l.url, efi: efi)
     }
     func download() {
+        send("dl", ["state": "error", "why": "RTX6000 test installer: use the paired offline archive beside this app or in Downloads; automatic official updates are disabled."]); return
+
         startDownload(name: Package.name, sha: Package.sha256, url: Package.url, efi: nil)
     }
     // "Update the app": the newest 1401 Mac app from the same release, checked against SHA256SUMS.txt, unpacked, checked
@@ -655,6 +667,8 @@ final class App: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKUIDe
     // waits for this app to quit, keeps the old copy as a backup, puts it back if the copy fails, and opens the new one.
     // Users no longer download and reinstall the app by hand for every release.
     func updateApp() {
+        send("appupd", ["state": "error", "why": "RTX6000 test installer: use the paired offline archive beside this app or in Downloads; automatic official updates are disabled."]); return
+
         let fail: (String) -> Void = { self.send("appupd", ["state": "error", "why": $0]) }
         guard let l = latestApp else { return fail("check for updates first") }
         let me = Bundle.main.bundleURL, parent = me.deletingLastPathComponent()

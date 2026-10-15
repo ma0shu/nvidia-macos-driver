@@ -1,0 +1,29 @@
+--- a/NVIDIA/src/nvidia-modeset/kapi/src/nvkms-kapi.c
++++ b/NVIDIA/src/nvidia-modeset/kapi/src/nvkms-kapi.c
+@@ -748,6 +748,13 @@
+     memAllocParams.attr = FLD_SET_DRF(OS32, _ATTR, _PHYSICALITY, _NONCONTIGUOUS,
+                                       memAllocParams.attr);
+ 
++#if defined(NVKMS_XNU_CONTIG_SCANOUT_EXPERIMENT)
++    if (type == NVKMS_KAPI_ALLOCATION_TYPE_SCANOUT) {
++        memAllocParams.attr = FLD_SET_DRF(OS32, _ATTR, _PHYSICALITY, _CONTIGUOUS,
++                                         memAllocParams.attr);
++    }
++#endif
++
+     ret = nvRmApiAlloc(device->hRmClient,
+                        device->hRmDevice,
+                        hRmHandle,
+@@ -1670,6 +1677,12 @@
+     memory->isContiguous =
+         (params->useVideoMemory &&
+          (params->type == NVKMS_KAPI_ALLOCATION_TYPE_SCANOUT));
++#if defined(NVKMS_XNU_CONTIG_SCANOUT_EXPERIMENT)
++    if (!params->useVideoMemory &&
++        params->type == NVKMS_KAPI_ALLOCATION_TYPE_SCANOUT) {
++        memory->isContiguous = NV_TRUE;
++    }
++#endif
+ 
+     if (params->layout == NvKmsSurfaceMemoryLayoutBlockLinear) {
+         memory->surfaceParams.blockLinear.genericMemory = NV_TRUE;
