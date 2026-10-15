@@ -2,7 +2,62 @@
 # Dell 7920 only. Sourced by the USB Recovery entry point; Bash 3.2 compatible.
 get() { "$PB" -c "Print :$2" "$1" 2>/dev/null; }
 stop() { echo "STOP: $*" >&2; echo "Operation log: ${OUT:-not created}" >&2; exit 1; }
-sha() { shasum -a 256 "$1" | awk '{print $1}'; }
+# Sequoia BaseSystem has /sbin/sha256, but omits shasum, cmp and base64.
+# Never let two failed/empty digests count as a successful comparison.
+sha() {
+    local digest
+    digest=$("${SHA_TOOL:-/sbin/sha256}" -q "$1") || { echo "Cannot hash: $1" >&2; return 1; }
+    case "$digest" in ''|*[!0-9a-f]*) echo 'Invalid SHA-256 output.' >&2; return 1;; esac
+    [ "${#digest}" = 64 ] || { echo 'Incomplete SHA-256 output.' >&2; return 1; }
+    printf '%s\n' "$digest"
+}
+files_equal() {
+    local first second
+    first=$(sha "$1") && second=$(sha "$2") || return 1
+    [ "$first" = "$second" ]
+}
+RECOVERY_COMMANDS='awk basename cat chmod chown cp cut date df dirname diskutil ditto find grep head id kmutil log ls mkdir mktemp mv plutil rm sed sleep stat sw_vers sync tail tar tee tr uname'
+runtime_preflight() {
+    local command probe digest
+    for command in $RECOVERY_COMMANDS; do
+        command -v "$command" >/dev/null 2>&1 || stop "Recovery is missing required command: $command. No target files changed."
+    done
+    [ -x "$PB" ] && [ -x "${SHA_TOOL:-/sbin/sha256}" ] || stop 'Recovery plist/hash tools are missing. No target files changed.'
+    probe="$OUT/.sha256-probe"
+    printf abc > "$probe" || stop 'Cannot create the USB checksum self-test.'
+    digest=$(sha "$probe") || stop 'Recovery SHA-256 self-test failed. No target files changed.'
+    [ "$digest" = ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad ] && files_equal "$probe" "$probe" || stop 'Recovery SHA-256 self-test returned incorrect data. No target files changed.'
+    rm -f "$probe" || stop 'Cannot finish the USB checksum self-test.'
+    echo 'Recovery command preflight and native SHA-256 self-test: OK'
+}
+verify_manifest() {
+    local root=$1 manifest=$2 line expected relative actual count=0
+    [ -f "$manifest" ] && [ ! -L "$manifest" ] || return 1
+    while IFS= read -r line || [ -n "$line" ]; do
+        expected=${line%% *}
+        [ "${#expected}" = 64 ] || return 1
+        case "$expected" in *[!0-9a-f]*) return 1;; esac
+        case "$line" in "$expected  "*) relative=${line#"$expected  "};; *) return 1;; esac
+        case "$relative" in ''|/*|../*|*/../*|*/..|..|./*|*\\*) return 1;; esac
+        [ -f "$root/$relative" ] && [ ! -L "$root/$relative" ] || return 1
+        actual=$(sha "$root/$relative") || return 1
+        [ "$actual" = "$expected" ] || { echo "Checksum mismatch: $relative" >&2; return 1; }
+        count=$((count+1))
+    done < "$manifest"
+    [ "$count" -gt 0 ] || return 1
+    printf 'Verified %s payload files.\n' "$count"
+}
+write_kext_manifest() {
+    local root=$1 relative digest
+    # Materialize the file list so a failed find cannot be hidden by process substitution.
+    (cd "$root" && find NVAccel.kext -type f -print) > "$root/.manifest-files" || return 1
+    while IFS= read -r relative; do
+        digest=$(sha "$root/$relative") || return 1
+        printf '%s  %s\n' "$digest" "$relative" || return 1
+    done < "$root/.manifest-files" > "$root/SHA256SUMS" || return 1
+    rm -f "$root/.manifest-files" || return 1
+    verify_manifest "$root" "$root/SHA256SUMS"
+}
 same_uuid() { [ "$(printf '%s' "$1" | tr A-Z a-z)" = "$(printf '%s' "$2" | tr A-Z a-z)" ]; }
 shell_pairs() {
     local value
@@ -90,7 +145,7 @@ identify_target() {
     BAR_UEFI=$(get "$CFG" UEFI:Quirks:ResizeGpuBars) || stop 'Missing UEFI BAR setting.'
     [ "$BAR_APPLE:$BAR_UEFI" = -1:-1 ] || stop "BAR settings changed ($BAR_APPLE / $BAR_UEFI). Refusing to guess or shrink BAR1."
     cp "$CFG" "$OUT/config-before.plist" || stop 'Cannot save the live internal OC config.'
-    CFG_SHA=$(sha "$CFG")
+    CFG_SHA=$(sha "$CFG") || stop 'Cannot hash the internal OC config.'
     printf 'System=%s (%s)\nData=%s (%s)\nOC=%s\nAppleBAR=%s\nUEFIBAR=%s\n' "$SYSTEM_ROOT" "$SYSTEM_DEV" "$DATA_ROOT" "$DATA_DEV" "$CFG" "$BAR_APPLE" "$BAR_UEFI" | tee "$OUT/target.txt"
     EXT="$DATA_ROOT/Library/Extensions"
     ST="$DATA_ROOT/Library/NullMoth"
@@ -258,7 +313,7 @@ rollback_transaction() {
         cp "$WORK/config-before.plist" "$CFG" || failed=1
         [ -L "$CFG.offline-new" ] || rm -f "$CFG.offline-new" || failed=1
     fi
-    [ ! -f "$WORK/config-before.plist" ] || [ "$(sha "$CFG")" = "$(sha "$WORK/config-before.plist")" ] || failed=1
+    [ ! -f "$WORK/config-before.plist" ] || files_equal "$CFG" "$WORK/config-before.plist" || failed=1
     if [ "$failed" = 0 ]; then
         rm -f "$ST/offline-operation" || return 1
         : > "$WORK/ROLLED_BACK"
@@ -278,12 +333,16 @@ resume_interrupted() {
     }
 }
 txn_commit() {
-    [ "$(sha "$CFG")" = "$CFG_SHA" ] || stop 'OC config changed during this operation.'
-    : > "$WORK/config-publish-intent"; sync
+    local live_sha
+    live_sha=$(sha "$CFG") || stop 'Cannot verify OC before publication.'
+    [ "$live_sha" = "$CFG_SHA" ] || stop 'OC config changed during this operation.'
+    : > "$WORK/config-publish-intent" || stop 'Cannot record EFI publication intent.'
+    sync
     local temporary="$CFG.offline-new"
     [ ! -e "$temporary" ] || stop 'A previous EFI publication is incomplete.'
-    cp "$CFG_NEW" "$temporary" && cmp -s "$CFG_NEW" "$temporary" && mv "$temporary" "$CFG" || stop 'Cannot publish the staged OC config.'
-    [ "$(sha "$CFG")" = "$(sha "$CFG_NEW")" ] || stop 'Published OC config does not match.'
+    [ ! -L "$temporary" ] || stop 'Unexpected EFI publication symlink.'
+    cp "$CFG_NEW" "$temporary" && files_equal "$CFG_NEW" "$temporary" && mv "$temporary" "$CFG" || stop 'Cannot publish the staged OC config.'
+    files_equal "$CFG" "$CFG_NEW" || stop 'Published OC config does not match.'
     cp "$CFG" "$OUT/config-after.plist" || stop 'Cannot save the published config.'
     sync
     : > "$WORK/COMMITTED" || stop 'Cannot record the committed transaction.'

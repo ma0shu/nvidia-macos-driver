@@ -7,6 +7,7 @@ export PATH COPYFILE_DISABLE=1
 umask 022
 HERE=$(cd "$(dirname "$0")" && pwd -P) || exit 1
 PB=/usr/libexec/PlistBuddy
+SHA_TOOL=/sbin/sha256
 . "$HERE/common.sh" || exit 1
 [ "$(uname -s):$(uname -m):$(id -u)" = Darwin:x86_64:0 ] || stop 'Open Terminal in Intel macOS Recovery.'
 # Recovery layouts vary. Reject a live target using the UUID/mount checks in
@@ -23,7 +24,7 @@ KEXTS='NVRM NVAccel NVRMFB NVRMAGDC'
 USB_ROOT=$(cd "$HERE/../.." && pwd -P) || stop 'Cannot locate the USB root.'
 case "$USB_ROOT" in /Volumes/*) ;; *) stop 'Start the kit from the USB volume.';; esac
 echo
-echo 'Dell 7920 / RTX6000 - Recovery driver toolkit 1'
+echo 'Dell 7920 / RTX6000 - Recovery driver toolkit 2'
 echo "Package: $(get "$MANIFEST" Package:Label)"
 echo '1  Install / replace driver (no prior uninstall needed)'
 echo '2  Collect logs only'
@@ -45,6 +46,7 @@ finish() {
 }
 trap finish EXIT
 trap 'stop "Interrupted; restoring the previous installation."' HUP INT TERM
+runtime_preflight
 sw_vers > "$OUT/recovery-os.txt"
 identify_target
 collect() {
@@ -57,7 +59,7 @@ if [ "$ACTION" = remove ]; then
     collect || stop 'Collection was incomplete. No driver files removed; logs retained.'
 fi
 resume_interrupted
-CFG_SHA=$(sha "$CFG")
+CFG_SHA=$(sha "$CFG") || stop 'Cannot verify the recovered OC configuration.'
 BAR_APPLE=$(get "$CFG" Booter:Quirks:ResizeAppleGpuBars)
 BAR_UEFI=$(get "$CFG" UEFI:Quirks:ResizeGpuBars)
 [ "$BAR_APPLE:$BAR_UEFI" = -1:-1 ] || stop 'Recovered configuration has unexpected BAR values.'

@@ -7,22 +7,25 @@ stage_copy() {
     printf '%s\n' "$rel" >> "$WORK/install-list.txt" || stop 'Cannot record the staged payload.'
 }
 prepare_install() {
-    local package expected payload k b dir a args csr
+    local package expected actual payload k b dir a args csr config_sha
     package=$(get "$MANIFEST" Package:File)
     case "$package" in Packages/*.tar.gz) ;; *) stop 'Invalid package filename in the kit manifest.';; esac
     case "$package" in *..*) stop 'Invalid package path.';; esac
     package="$HERE/$package"
     expected=$(get "$MANIFEST" Package:SHA256)
     echo 'Checking the pinned driver archive (offline; no downloads)...'
-    [ -f "$package" ] && [ "$(sha "$package")" = "$expected" ] || stop 'Driver archive SHA-256 mismatch or missing package.'
+    [ -f "$package" ] || stop 'Driver archive is missing.'
+    actual=$(sha "$package") || stop 'Cannot calculate the driver archive SHA-256.'
+    [ "$actual" = "$expected" ] || stop 'Driver archive SHA-256 mismatch.'
     args=$(get "$CFG_NEW" "NVRAM:Add:$GUID:boot-args")
     for a in nvfb=1 nvaccel=1; do case " $args " in *" $a "*) ;; *) stop "Current OC is missing $a; no automatic configuration guesses.";; esac; done
-    csr=$(plutil -extract "NVRAM.Add.$GUID.csr-active-config" raw -o - "$CFG_NEW" | base64 -D | od -An -tx1 | tr -d ' \n')
-    [ "$csr" = 430a0000 ] || stop 'The recorded SIP configuration changed. No driver files replaced.'
+    # plutil returns plist <data> as Base64; compare directly without a missing decoder.
+    csr=$(plutil -extract "NVRAM.Add.$GUID.csr-active-config" raw -o - "$CFG_NEW") || stop 'Cannot read the recorded SIP configuration.'
+    [ "$csr" = QwoAAA== ] || stop 'The recorded SIP configuration changed. No driver files replaced.'
     mkdir "$WORK/payload" || stop 'Cannot prepare package extraction.'
     tar -xzf "$package" -C "$WORK/payload" || stop 'Cannot extract the verified driver archive.'
     payload="$WORK/payload/pkgroot"
-    (cd "$payload" && shasum -a 256 -c SHA256SUMS --quiet) > "$OUT/package-check.txt" 2>&1 || stop 'Payload manifest verification failed.'
+    verify_manifest "$payload" "$payload/SHA256SUMS" > "$OUT/package-check.txt" 2>&1 || stop 'Payload manifest verification failed.'
     [ "$(cat "$payload/VERSION")" = "$(get "$MANIFEST" Package:Version)" ] || stop 'Package version mismatch.'
     # Same Mach-O minimum-OS check as the app, evaluated for the INSTALLED OS.
     chmod 755 "$HERE/Support/nullmoth-runtime-check" 2>/dev/null || true
@@ -42,7 +45,7 @@ prepare_install() {
     stage_copy Library/NullMoth/kexts "$payload/Library/NullMoth/kexts"
     for a in 15 26; do
         dir="$WORK/stage/Library/NullMoth/kexts/$a"
-        (cd "$dir" && find NVAccel.kext -type f -exec shasum -a 256 '{}' \;) > "$dir/SHA256SUMS" || stop 'Cannot create the accelerator manifest.'
+        write_kext_manifest "$dir" || stop 'Cannot create/verify the accelerator manifest.'
     done
     cp "$payload/VERSION" "$WORK/version"
     printf '15\n' > "$WORK/os-major"
@@ -57,12 +60,13 @@ prepare_install() {
         stage_copy "Library/LaunchDaemons/com.nullmoth.$a.plist" "$HERE/Support/com.nullmoth.$a.plist"
     done
     # Current config is the restore reference; never resurrect an earlier Apple BAR=0 backup.
+    config_sha=$(sha "$CFG_NEW") || stop 'Cannot hash the staged configuration.'
     {
         echo '# Recovery toolkit install record'
         shell_pairs EFI_UUID "$ESP_UUID" CONFIG_PATH "$CFG" OCREL EFI/OC \
             CONFIG_BACKUP_REL '' CONFIG_BACKUP "$WORK/config-before.plist" \
-            CONFIG_SHA_AFTER "$(sha "$CFG_NEW")" ADDED_ARGS '' REMOVED_ARGS '' DRIVER_BACKUP ''
-    } > "$WORK/state"
+            CONFIG_SHA_AFTER "$config_sha" ADDED_ARGS '' REMOVED_ARGS '' DRIVER_BACKUP ''
+    } > "$WORK/state" || stop 'Cannot write the staged driver state.'
     stage_copy Library/NullMoth/state "$WORK/state"
     chown -R root:wheel "$WORK/stage" && chmod -R go-w,a+rX "$WORK/stage" || stop 'Cannot protect the staged driver.'
     chmod 600 "$WORK/stage/Library/NullMoth/state"
