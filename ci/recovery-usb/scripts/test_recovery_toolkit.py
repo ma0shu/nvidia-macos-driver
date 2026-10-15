@@ -85,6 +85,46 @@ printf '%s' "$TEST_VALUE" > "$OUT/state-value.txt"
         r = self.run_shell('get() { printf /; }; physical_mount unused', 1)
         self.assertEqual(r.stdout, '')
 
+    def test_mount_resolves_uuid_but_mounts_bsd_device(self):
+        self.run_shell('''
+get() { case "$2" in DiskUUID) echo AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE;; DeviceIdentifier) echo disk5s4;; MountPoint) [ ! -f "$OUT/mounted" ] || echo '/Volumes/Mac';; esac; }
+diskutil() {
+    if [ "$1" = info ]; then echo plist; return 0; fi
+    [ "$1:$2" = mount:disk5s4 ] || return 77
+    echo "$2" > "$OUT/mount-device.txt"; touch "$OUT/mounted"
+}
+mount_uuid aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee "$OUT/info.plist"
+''')
+        self.assertEqual((self.out / 'mount-device.txt').read_text().strip(), 'disk5s4')
+
+    def test_already_mounted_volume_needs_no_mount_command(self):
+        self.run_shell('''
+get() { case "$2" in DiskUUID) echo AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE;; DeviceIdentifier) echo disk5s4;; MountPoint) echo '/Volumes/Mac';; esac; }
+diskutil() { [ "$1" = info ] || return 77; echo plist; }
+mount_uuid aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee "$OUT/info.plist"
+''')
+
+    def test_mount_rechecks_uuid_after_device_mount(self):
+        self.run_shell('''
+get() { case "$2" in DiskUUID) if [ -f "$OUT/mounted" ]; then echo WRONG; else echo AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE; fi;; DeviceIdentifier) echo disk5s4;; MountPoint) [ ! -f "$OUT/mounted" ] || echo '/Volumes/Mac';; esac; }
+diskutil() { if [ "$1" = info ]; then echo plist; else touch "$OUT/mounted"; fi; }
+mount_uuid aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee "$OUT/info.plist"
+''', 1)
+
+    @unittest.skipIf(os.name == 'nt', 'Apple native plist parser regression')
+    def test_native_actual_quiet_config_and_repaired_config(self):
+        fixtures = ROOT / 'fixtures'
+        results = {}
+        for name in ['oc-before-quiet.plist', 'oc-dotnet-quiet.plist', 'oc-repaired-quiet.plist']:
+            p = fixtures / name
+            self.assertTrue(p.is_file(), name)
+            proc = subprocess.run(['/usr/bin/plutil', '-lint', str(p)], capture_output=True, text=True)
+            results[name] = {'exit_code': proc.returncode, 'output': proc.stdout + proc.stderr}
+        print('APPLE_PLUTIL_REGRESSION', json.dumps(results, ensure_ascii=False))
+        self.assertEqual(results['oc-before-quiet.plist']['exit_code'], 0)
+        self.assertNotEqual(results['oc-dotnet-quiet.plist']['exit_code'], 0)
+        self.assertEqual(results['oc-repaired-quiet.plist']['exit_code'], 0)
+
     def test_recovery_entry_does_not_guess_from_cdis_directory(self):
         entry = LIB.with_name('recovery.sh').read_text(encoding='utf-8')
         self.assertNotIn('[ -d /System/Installation/CDIS ]', entry)

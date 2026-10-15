@@ -15,12 +15,21 @@ shell_pairs() {
 }
 
 mount_uuid() {
-    local uuid=$1 info=$2
+    local uuid=$1 info=$2 dev mp
     diskutil info -plist "$uuid" > "$info" || stop "Cannot find the recorded volume $uuid."
     same_uuid "$(get "$info" DiskUUID)" "$uuid" || stop 'Volume identity mismatch.'
-    diskutil mount "$uuid" || stop 'Cannot mount the recorded volume. Unlock it in Disk Utility if encrypted.'
-    diskutil info -plist "$uuid" > "$info" || stop 'Cannot inspect the mounted volume.'
+    dev=$(get "$info" DeviceIdentifier) || stop 'The recorded volume has no device identifier.'
+    printf '%s\n' "$dev" | grep -Eq '^disk[0-9]+s[0-9]+$' || stop 'Unexpected volume device identifier.'
+    mp=$(get "$info" MountPoint || true)
+    # `info UUID` resolves the volume in this Recovery, but `mount UUID`
+    # rejects it. Mount the resolved, identity-checked BSD device instead.
+    if [ -z "$mp" ]; then
+        diskutil mount "$dev" || stop "Cannot mount $dev (resolved from the recorded UUID)."
+    fi
+    diskutil info -plist "$dev" > "$info" || stop 'Cannot inspect the mounted volume.'
     same_uuid "$(get "$info" DiskUUID)" "$uuid" || stop 'Mounted volume identity changed.'
+    [ "$(get "$info" DeviceIdentifier)" = "$dev" ] || stop 'Mounted device identity changed.'
+    [ -n "$(get "$info" MountPoint)" ] || stop 'The verified device still has no mount point.'
 }
 physical_mount() {
     local mp
