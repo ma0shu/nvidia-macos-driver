@@ -998,7 +998,11 @@ bool NVRMNVDAFramebuffer::kapiInit()
     sp.width = fW; sp.height = fH; sp.format = NvKmsSurfaceMemoryFormatX8R8G8B8;
     fSurf = fKms->createSurface(fDev, &sp);
     if (!fSurf) {
-        FBLOG("createSurface failed");
+        FBLOG("SCANOUT-DIAG createSurface failed: pool=%s contiguous=%u phys=0x%llx bytes=%llu "
+              "size=%ux%u pitch=%u BAR1=%llu MiB; a CPU-readable allocation is not proof of hardware scanout support",
+              (fKms->isVidmem && fKms->isVidmem(fMem)) ? "VIDMEM" : "SYSMEM",
+              (unsigned)(fKms->isContiguous && fKms->isContiguous(fMem)), fPhys, fMemBytes,
+              fW, fH, fPitch, fBarLen >> 20);
         if (fScanoutBarBytes) { OSAddAtomic64(-(SInt64)fScanoutBarBytes, &gVramDisplayBytes); fScanoutBarBytes = 0; }
         if (consoleSilenced && getPlatform()) getPlatform()->setConsoleInfo(0, kPEEnableScreen);
         return false;

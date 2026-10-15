@@ -1,0 +1,70 @@
+name: RTX 6000 small BAR research build
+
+on:
+  workflow_dispatch:
+    inputs:
+      experiment:
+        description: Enable the contiguous system-memory scanout experiment
+        type: boolean
+        default: true
+        required: true
+  push:
+    branches: [test/rtx6000-smallbar-v2.0.2]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rtx6000-smallbar-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15-intel
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+      - name: Select Intel macOS toolchain
+        run: |
+          test "$(uname -m)" = x86_64
+          if [ -d /Applications/Xcode_16.4.app ]; then
+            sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+          fi
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-path
+          command -v gmake || brew install make
+      - name: Fetch the matching NVIDIA source
+        run: |
+          git clone --depth 1 --branch 610.57.04 https://github.com/NVIDIA/open-gpu-kernel-modules.git .deps/open-gpu-kernel-modules
+          test "$(git -C .deps/open-gpu-kernel-modules rev-parse HEAD)" = e4a5faa2567f28c8eabe0ebb6422b6d0abcf37eb
+          git -C .deps/open-gpu-kernel-modules apply ../../ci/patches/610-macos-version-headers.patch
+          git -C .deps/open-gpu-kernel-modules apply ../../kexts/NVRM/patches/610-fsp-timer-double-destroy.patch
+          git -C .deps/open-gpu-kernel-modules apply ../../kexts/NVRM/patches/610-display-completion.patch
+          git -C .deps/open-gpu-kernel-modules apply -p2 ../../ci/patches/610-contiguous-scanout.patch
+          git -C .deps/open-gpu-kernel-modules apply ../../ci/patches/610-scanout-diagnostics.patch
+      - name: Compile the driver components
+        env:
+          ENABLE_EXPERIMENT: ${{ github.event_name == 'push' || inputs.experiment }}
+        run: |
+          flags=()
+          if [ "$ENABLE_EXPERIMENT" = true ]; then flags+=(--experiment); fi
+          python3 ci/build-macos-kexts.py --vendor .deps/open-gpu-kernel-modules --output build-out --jobs 4 "${flags[@]}"
+      - name: Package the compiled experiment
+        run: python3 ci/package-experiment.py --output build-out
+      - name: Preserve build products and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rtx6000-smallbar-2.0.2-${{ github.run_number }}
+          path: |
+            build-out/logs/
+            build-out/kexts/
+            build-out/build-proof.json
+            build-out/SHA256SUMS.txt
+            .deps/open-gpu-kernel-modules/src/nvidia/_out/Darwin_x86_64/ci-*.txt
+            .deps/open-gpu-kernel-modules/src/nvidia-modeset/_out/Darwin_x86_64/ci-*.txt
+          if-no-files-found: warn
+          retention-days: 14
