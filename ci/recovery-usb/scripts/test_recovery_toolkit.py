@@ -77,6 +77,19 @@ printf '%s' "$TEST_VALUE" > "$OUT/state-value.txt"
 ''')
         self.assertEqual((self.out / 'state-value.txt').read_text(encoding='utf-8'), value)
 
+    def test_running_data_mount_is_not_an_offline_target(self):
+        r = self.run_shell('get() { printf /System/Volumes/Data; }; physical_mount unused', 1)
+        self.assertEqual(r.stdout, '')
+
+    def test_running_root_mount_is_not_an_offline_target(self):
+        r = self.run_shell('get() { printf /; }; physical_mount unused', 1)
+        self.assertEqual(r.stdout, '')
+
+    def test_recovery_entry_does_not_guess_from_cdis_directory(self):
+        entry = LIB.with_name('recovery.sh').read_text(encoding='utf-8')
+        self.assertNotIn('[ -d /System/Installation/CDIS ]', entry)
+        self.assertNotIn('[ ! -d /System/Volumes/Data/Users ]', entry)
+
     def test_failed_copy_restores_old_kext(self):
         p = self.original()
         self.run_shell('''

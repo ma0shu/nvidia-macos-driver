@@ -26,7 +26,13 @@ physical_mount() {
     local mp
     mp=$(get "$1" MountPoint) || return 1
     case "$mp" in /Volumes/*) ;; *) return 1;; esac
-    (cd "$mp" && pwd -P)
+    mp=$(cd "$mp" && pwd -P) || return 1
+    # Test the canonical path too: a /Volumes alias must not resolve to the
+    # running System/Data mounts. Presence of /System/Volumes/Data/Users in a
+    # Recovery image alone says nothing about the offline target's identity.
+    case "$mp" in /Volumes/*) ;; *) return 1;; esac
+    [ ! "$mp" -ef / ] && [ ! "$mp" -ef /System/Volumes/Data ] || return 1
+    printf '%s\n' "$mp"
 }
 identify_target() {
     diskutil list -plist > "$OUT/disks.plist" || stop 'Cannot enumerate disks.'

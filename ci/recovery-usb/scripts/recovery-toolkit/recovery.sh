@@ -9,7 +9,8 @@ HERE=$(cd "$(dirname "$0")" && pwd -P) || exit 1
 PB=/usr/libexec/PlistBuddy
 . "$HERE/common.sh" || exit 1
 [ "$(uname -s):$(uname -m):$(id -u)" = Darwin:x86_64:0 ] || stop 'Open Terminal in Intel macOS Recovery.'
-[ -d /System/Installation/CDIS ] && [ ! -d /System/Volumes/Data/Users ] || stop 'This entry is for Recovery, not the running installed macOS.'
+# Recovery layouts vary. Reject a live target using the UUID/mount checks in
+# identify_target, rather than guessing from CDIS or a Users directory.
 MANIFEST="$HERE/kit.plist"
 PART_UUID=$(get "$MANIFEST" Target:PartitionUUID) || stop 'Kit target manifest is missing.'
 SYSTEM_UUID=$(get "$MANIFEST" Target:SystemUUID)
