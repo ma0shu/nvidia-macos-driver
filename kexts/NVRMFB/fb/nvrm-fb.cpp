@@ -469,6 +469,9 @@ static int gNDpy = -1;
 // has to tell the framework its connection is new -- see connectNotifyFire/enableController.
 static int gNDpyBoot = -1;
 static int gBootHead = -2;
+// EDID timing can match both 4K panels: gBootHead then stays -1 to avoid
+// reserving a display incorrectly. RM still reports the actual firmware head.
+static int gConsoleFirmwareHead = -1;
 static NvKmsKapiDisplay gBootDpy = 0;
 static struct NvKmsKapiDisplayMode gBootMode;
 static NvU32 gHeadsTaken;
@@ -745,6 +748,8 @@ bool NVRMNVDAFramebuffer::kapiInit()
         uint32_t br[4] = { 0, 0, 0, 0 };
         IOReturn rr = (rm && q) ? rm->callPlatformFunction(q, false, br, NULL, NULL, NULL) : kIOReturnNotFound;
         if (q) q->release();
+        if (rr == kIOReturnSuccess && br[0] < fNumHeads && br[1] && br[2] && br[3])
+            gConsoleFirmwareHead = (int)br[0];
         int matches = 0; NvKmsKapiDisplay hit = 0;
         for (int pass = 0; pass < 2 && matches == 0 && rr == kIOReturnSuccess; pass++) {
             for (int k = 0; k < gNDpy; k++) {
@@ -1866,7 +1871,7 @@ bool NVRMNVDAFramebuffer::applyMode()
     fLastOk = (unsigned)ok; fFlipResult = (int)rep->flipResult;
     FBLOG("applyModeSetConfig -> %u (flipResult %d)", ok, (int)rep->flipResult);
     const bool consoleExperiment = fConsoleReleaseAck && fBarLen == (256ull << 20) &&
-        gBootHead >= 0 && gConsoleLifetime.device == fDev && gConsoleLifetime.kernelDisabled;
+        gConsoleFirmwareHead >= 0 && gConsoleLifetime.device == fDev && gConsoleLifetime.kernelDisabled;
     if (ok && !consoleExperiment && fKms->framebufferConsoleDisabled) {
         fKms->framebufferConsoleDisabled(fDev);
         FBLOG("framebufferConsoleDisabled() sent -- NVKMS releases the old GOP console");
@@ -2626,7 +2631,7 @@ void NVRMNVDAFramebuffer::clearConsoleProbe()
 void NVRMNVDAFramebuffer::retireBootConsole()
 {
     if (!fConsoleReleaseAck || fConsoleAperture || fSubmissionFaulted ||
-        !gConsoleLifetime.eligible(fDev, fBarLen, gBootHead, gHeadsTaken)) return;
+        !gConsoleLifetime.eligible(fDev, fBarLen, gConsoleFirmwareHead, gHeadsTaken)) return;
     // An accepted bootstrap is not proof that scanout moved. Every claimed
     // head must have its submitted primary plane latched before the old
     // firmware console address is available for unrelated resources.
@@ -2664,8 +2669,8 @@ void NVRMNVDAFramebuffer::retireBootConsole()
         gParkedForever[gNParkedForever] = {};
     }
     OSAddAtomic64(reclaimed, &gConsoleReclaimedBytes);
-    FBLOG("console-retire: CONFIRMED device %p heads %#x, reclaimed %lld bytes, parked %lld; live scanouts remain protected",
-          fDev, gHeadsTaken, (long long)reclaimed, (long long)gVramParkedBytes);
+    FBLOG("console-retire: CONFIRMED device %p firmware head %d, heads %#x, reclaimed %lld bytes, parked %lld; live scanouts remain protected",
+          fDev, gConsoleFirmwareHead, gHeadsTaken, (long long)reclaimed, (long long)gVramParkedBytes);
 }
 static volatile SInt64 gCntGrant, gCntGrantBytes, gCntRelease, gCntReleaseBytes;
 SYSCTL_QUAD(_debug, OID_AUTO, nvrmfb_vram_grants,        CTLFLAG_RD | CTLFLAG_LOCKED, (SInt64 *)&gCntGrant,        "vramGrant successes");

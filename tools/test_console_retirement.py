@@ -20,6 +20,11 @@ int main() {
     assert(!s.eligible(&gpu, bar, 0, 3)); // the other claimed head still uses its old state
     s.submitted(&gpu, 1);
     assert(s.eligible(&gpu, bar, 0, 3));
+    // Captured dual-4K boot: two displays match the timing, so the display
+    // reservation head is -1, while RM's independently known firmware head is 0.
+    const int displayReservation = -1, firmwareHead = 0;
+    assert(!s.eligible(&gpu, bar, displayReservation, 3));
+    assert(s.eligible(&gpu, bar, firmwareHead, 3));
     assert(!s.eligible(&other, bar, 0, 3));
     assert(!s.eligible(&gpu, bar, -1, 3));
     assert(!s.eligible(&gpu, bar, 2, 3));
