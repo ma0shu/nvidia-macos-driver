@@ -9,7 +9,7 @@ on:
         default: true
         required: true
   push:
-    branches: [test/rtx6000-smallbar-v2.0.2]
+    branches: [test/rtx6000-smallbar-v2.0.3]
 
 permissions:
   contents: read
@@ -58,7 +58,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: rtx6000-smallbar-2.0.2-${{ github.run_number }}
+          name: rtx6000-smallbar-2.0.3-${{ github.run_number }}
           path: |
             build-out/logs/
             build-out/kexts/

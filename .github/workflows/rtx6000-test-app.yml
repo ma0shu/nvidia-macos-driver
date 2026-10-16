@@ -1,4 +1,4 @@
-name: RTX6000 2.0.2 paired offline installer
+name: RTX6000 2.0.3 paired offline installer
 
 on:
   workflow_dispatch:
@@ -46,13 +46,13 @@ jobs:
           mv app-build/1401.app app-build/1401-RTX6000-Contig2-Test.app
           codesign --verify --deep --strict app-build/1401-RTX6000-Contig2-Test.app
           xcrun lipo app-build/1401-RTX6000-Contig2-Test.app/Contents/MacOS/1401 -verify_arch x86_64
-          ditto -c -k --sequesterRsrc --keepParent app-build/1401-RTX6000-Contig2-Test.app app-build/1401-Mac-2.0.2-RTX6000-Contig2-Test.zip
-          shasum -a 256 app-build/1401-Mac-2.0.2-RTX6000-Contig2-Test.zip > app-build/AppSHA256SUMS.txt
+          ditto -c -k --sequesterRsrc --keepParent app-build/1401-RTX6000-Contig2-Test.app app-build/1401-Mac-2.0.3-RTX6000-Contig2-Test.zip
+          shasum -a 256 app-build/1401-Mac-2.0.3-RTX6000-Contig2-Test.zip > app-build/AppSHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: 1401-rtx6000-contig2-test-app
+          name: 1401-rtx6000-contig2-test-app-2.0.3
           path: |
-            app-build/1401-Mac-2.0.2-RTX6000-Contig2-Test.zip
+            app-build/1401-Mac-2.0.3-RTX6000-Contig2-Test.zip
             app-build/AppSHA256SUMS.txt
           retention-days: 14
           if-no-files-found: error

@@ -11,8 +11,8 @@ import tarfile
 import urllib.request
 from importlib.machinery import SourceFileLoader
 
-STOCK_URL = "https://github.com/nullmoth/nvidia-macos-driver/releases/download/v2.0.2/nullmoth-nvidia-2.0.2.tar.gz"
-STOCK_SHA256 = "acf939c2829ae31a1840866cefc814c4b819168da1eb5f1ea257ea3e63e8753d"
+STOCK_URL = "https://github.com/nullmoth/nvidia-macos-driver/releases/download/v2.0.3/nullmoth-nvidia-2.0.3.tar.gz"
+STOCK_SHA256 = "9868142c88941985b7105d8ac48539774533cd8babd56d74ad3b03a7c04c5721"
 
 
 def digest(path):
@@ -51,7 +51,7 @@ def main():
             magic, cpu, _, kind = struct.unpack("<4I", f.read(16))
         if (magic, cpu, kind) != (0xfeedfacf, 0x1000007, 11):
             raise SystemExit(f"Unexpected kext format: {name}")
-    stock = out / "stock-2.0.2.tar.gz"
+    stock = out / "stock-2.0.3.tar.gz"
     with urllib.request.urlopen(STOCK_URL, timeout=120) as response, stock.open("wb") as f:
         shutil.copyfileobj(response, f)
     if digest(stock) != STOCK_SHA256:
@@ -71,14 +71,14 @@ def main():
             raise SystemExit("Unexpected package kext destination.")
         shutil.rmtree(target)
         shutil.copytree(out / "kexts" / (name + ".kext"), target)
-    proof["package_note"] = "Personal small-BAR research build based on NullMoth 2.0.2. Not hardware validated."
+    proof["package_note"] = "Personal small-BAR research build based on NullMoth 2.0.3. Not hardware validated."
     (package / "EXPERIMENTAL-BUILD.json").write_text(json.dumps(proof, indent=2) + "\n")
     checksum = package / "SHA256SUMS"
     lines = [f"{digest(p)}  {p.relative_to(package).as_posix()}" for p in sorted(package.rglob("*"))
              if p.is_file() and p != checksum and not p.is_symlink()]
     checksum.write_text("\n".join(lines) + "\n")
     suffix = "contiguous-experiment" if proof["experiment"] else "diagnostic-baseline"
-    archive = out / f"nullmoth-2.0.2-rtx6000-{suffix}.tar.gz"
+    archive = out / f"nullmoth-2.0.3-rtx6000-{suffix}.tar.gz"
     with tarfile.open(archive, "w:gz") as tf:
         tf.add(package, arcname="pkgroot")
     (out / "SHA256SUMS.txt").write_text(f"{digest(archive)}  {archive.name}\n")

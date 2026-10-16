@@ -374,7 +374,7 @@ final class App: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKUIDe
         web.setValue(false, forKey: "drawsBackground")
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 880, height: 800),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "1401 — RTX6000 CONTIG TEST 2.0.2"; window.backgroundColor = .black; window.contentView = web; window.center()
+        window.title = "1401 — RTX6000 CONTIG TEST 2.0.3"; window.backgroundColor = .black; window.contentView = web; window.center()
         window.makeKeyAndOrderFront(nil)
         web.loadFileURL(res.appendingPathComponent("index.html"), allowingReadAccessTo: res)
         NSApp.activate(ignoringOtherApps: true)

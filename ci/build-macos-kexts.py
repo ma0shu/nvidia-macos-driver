@@ -16,8 +16,8 @@ import time
 import urllib.request
 
 NVIDIA_COMMIT = "e4a5faa2567f28c8eabe0ebb6422b6d0abcf37eb"
-STOCK_URL = "https://github.com/nullmoth/nvidia-macos-driver/releases/download/v2.0.2/nullmoth-nvidia-2.0.2.tar.gz"
-STOCK_SHA256 = "acf939c2829ae31a1840866cefc814c4b819168da1eb5f1ea257ea3e63e8753d"
+STOCK_URL = "https://github.com/nullmoth/nvidia-macos-driver/releases/download/v2.0.3/nullmoth-nvidia-2.0.3.tar.gz"
+STOCK_SHA256 = "9868142c88941985b7105d8ac48539774533cd8babd56d74ad3b03a7c04c5721"
 
 
 def digest(path):
@@ -66,7 +66,7 @@ def export_vendor(root, vendor, component, out):
     spdm_flags = shlex.split((generated / "ci-libspdm-cflags.txt").read_text())
     idname = "NV_RM_ID" if component == "nvidia" else "NV_KMS_ID"
     (generated / "g_nvid_string.c").write_text(
-        f'const char {idname}[] = "nvidia id: NVIDIA UNIX Open Kernel Module for x86_64 610.57.04 Research Build (yuanjing-hash 2.0.2-contig2)";\n'
+        f'const char {idname}[] = "nvidia id: NVIDIA UNIX Open Kernel Module for x86_64 610.57.04 Research Build (yuanjing-hash 2.0.3-contig2)";\n'
         f'const char *const p{idname} = {idname} + 11;\n')
     return directory, flags, sources, spdm_sources, spdm_flags, cc_flags, cxx_flags
 
@@ -184,7 +184,7 @@ def main():
     if not (headers / "IOKit/IOLib.h").is_file():
         raise RuntimeError(f"Kernel SDK headers unavailable: {headers}")
     proof = {"status": "BUILDING", "experiment": args.experiment,
-             "upstream": "v2.0.2", "nvidia_commit": NVIDIA_COMMIT,
+             "upstream": "v2.0.3", "nvidia_commit": NVIDIA_COMMIT,
              "fork_commit": run(["git", "rev-parse", "HEAD"], cwd=root),
              "sdk": str(sdk), "hardware_tested": False, "installed": False}
     (out / "build-proof.json").write_text(json.dumps(proof, indent=2))
