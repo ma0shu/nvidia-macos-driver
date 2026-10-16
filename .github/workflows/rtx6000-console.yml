@@ -17,6 +17,7 @@ jobs:
         with:
           lfs: false
           persist-credentials: false
+          fetch-depth: 0
       - name: Select Intel macOS toolchain
         run: |
           test "$(uname -m)" = x86_64
