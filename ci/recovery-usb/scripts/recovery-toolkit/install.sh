@@ -59,7 +59,7 @@ prepare_install() {
     # Current config is the restore reference; never resurrect an earlier Apple BAR=0 backup.
     {
         echo '# Recovery toolkit install record'
-        printf '%s=%q\n' EFI_UUID "$ESP_UUID" CONFIG_PATH "$CFG" OCREL EFI/OC \
+        LC_ALL=C printf '%s=%q\n' EFI_UUID "$ESP_UUID" CONFIG_PATH "$CFG" OCREL EFI/OC \
             CONFIG_BACKUP_REL '' CONFIG_BACKUP "$WORK/config-before.plist" \
             CONFIG_SHA_AFTER "$(sha "$CFG_NEW")" ADDED_ARGS '' REMOVED_ARGS '' DRIVER_BACKUP ''
     } > "$WORK/state"

@@ -150,7 +150,7 @@ build_kc() {
     local args=(create -n aux --volume-root / -a x86_64 -V release --allow-missing-kdk)
     [ ! -f "$KERNEL" ] || args+=(--kernel "$KERNEL")
     args+=(-B "$BOOTKC" -S "$SYSTEMKC" --repository "$repo" -A "$candidate" -z)
-    printf 'kmutil'; printf ' %q' "${args[@]}"; printf '\n'
+    printf 'kmutil'; LC_ALL=C printf ' %q' "${args[@]}"; printf '\n'
     kmutil "${args[@]}" > "$OUT/kmutil-$label.txt" 2>&1 || { tail -n 30 "$OUT/kmutil-$label.txt"; stop 'Kernel collection build failed; previous installation will be retained/restored.'; }
     [ -s "$candidate" ] || stop 'kmutil produced no collection.'
     kmutil inspect -a x86_64 -A "$candidate" > "$OUT/inspect-$label.txt" 2>&1 || stop 'Cannot inspect the candidate collection.'
