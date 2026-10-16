@@ -69,6 +69,14 @@ sync() {{ :; }}
     def test_refuses_unrelated_component(self):
         self.run_shell('txn_begin; txn_save "Library/Extensions/HighPoint.kext"', 1)
 
+    def test_state_paths_round_trip_unicode_and_apostrophe(self):
+        value = "/Volumes/Mac - 数据/Owner's backup/line\\path"
+        self.run_shell(f'''shell_pairs TEST_VALUE {shlex.quote(value)} > "$WORK/state"
+. "$WORK/state"
+printf '%s' "$TEST_VALUE" > "$OUT/state-value.txt"
+''')
+        self.assertEqual((self.out / 'state-value.txt').read_text(encoding='utf-8'), value)
+
     def test_failed_copy_restores_old_kext(self):
         p = self.original()
         self.run_shell('''

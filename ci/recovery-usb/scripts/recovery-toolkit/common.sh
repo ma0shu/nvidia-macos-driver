@@ -4,6 +4,15 @@ get() { "$PB" -c "Print :$2" "$1" 2>/dev/null; }
 stop() { echo "STOP: $*" >&2; echo "Operation log: ${OUT:-not created}" >&2; exit 1; }
 sha() { shasum -a 256 "$1" | awk '{print $1}'; }
 same_uuid() { [ "$(printf '%s' "$1" | tr A-Z a-z)" = "$(printf '%s' "$2" | tr A-Z a-z)" ]; }
+shell_pairs() {
+    local value
+    while [ "$#" -ge 2 ]; do
+        value=$2
+        value=${value//\'/\'\\\'\'}
+        printf "%s='%s'\n" "$1" "$value"
+        shift 2
+    done
+}
 
 mount_uuid() {
     local uuid=$1 info=$2
@@ -150,7 +159,9 @@ build_kc() {
     local args=(create -n aux --volume-root / -a x86_64 -V release --allow-missing-kdk)
     [ ! -f "$KERNEL" ] || args+=(--kernel "$KERNEL")
     args+=(-B "$BOOTKC" -S "$SYSTEMKC" --repository "$repo" -A "$candidate" -z)
-    printf 'kmutil'; LC_ALL=C printf ' %q' "${args[@]}"; printf '\n'
+    # Bash 3.2's %q can emit malformed UTF-8 for a Chinese mount name. The
+    # actual command uses the untouched array; diagnostics print each argument.
+    printf 'kmutil'; printf ' <%s>' "${args[@]}"; printf '\n'
     kmutil "${args[@]}" > "$OUT/kmutil-$label.txt" 2>&1 || { tail -n 30 "$OUT/kmutil-$label.txt"; stop 'Kernel collection build failed; previous installation will be retained/restored.'; }
     [ -s "$candidate" ] || stop 'kmutil produced no collection.'
     kmutil inspect -a x86_64 -A "$candidate" > "$OUT/inspect-$label.txt" 2>&1 || stop 'Cannot inspect the candidate collection.'
