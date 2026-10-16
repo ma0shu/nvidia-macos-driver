@@ -117,7 +117,7 @@ def build_archive(component, exported, common, out, jobs):
     return archive
 
 
-def native_flags(exported, sdk, headers, resource, root, vendor, experiment):
+def native_flags(exported, sdk, headers, resource, root, vendor):
     directory, exported_flags = exported[:2]
     retained = []
     arguments = iter(exported_flags)
