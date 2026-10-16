@@ -1,0 +1,81 @@
+name: RTX6000 console handoff experiment 2.0.4
+on:
+  workflow_dispatch:
+  push:
+    branches: [test/rtx6000-console-retire-v2.0.4]
+permissions:
+  contents: read
+concurrency:
+  group: console-retire-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: macos-15-intel
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+      - name: Select Intel macOS toolchain
+        run: |
+          test "$(uname -m)" = x86_64
+          if [ -d /Applications/Xcode_16.4.app ]; then
+            sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+          fi
+          xcodebuild -version
+          command -v gmake || brew install make
+      - name: Exercise handoff and uninstall failure boundaries
+        run: |
+          mkdir -p build-out/logs
+          set -o pipefail
+          {
+            /bin/bash -n app/Resources/nullmoth-setup.sh
+            python3 tools/test_console_retirement.py
+            python3 tools/test_removal_preflight.py
+            python3 tools/test_bar_preservation.py
+            python3 tools/test_remove_entry.py
+          } 2>&1 | tee build-out/logs/console-and-bar-tests.log
+      - name: Fetch matching NVIDIA source and apply paired patches
+        run: |
+          git clone --depth 1 --branch 610.57.04 https://github.com/NVIDIA/open-gpu-kernel-modules.git .deps/open-gpu-kernel-modules
+          test "$(git -C .deps/open-gpu-kernel-modules rev-parse HEAD)" = e4a5faa2567f28c8eabe0ebb6422b6d0abcf37eb
+          git -C .deps/open-gpu-kernel-modules apply ../../ci/patches/610-macos-version-headers.patch
+          git -C .deps/open-gpu-kernel-modules apply ../../kexts/NVRM/patches/610-fsp-timer-double-destroy.patch
+          git -C .deps/open-gpu-kernel-modules apply ../../kexts/NVRM/patches/610-display-completion.patch
+          git -C .deps/open-gpu-kernel-modules apply ../../ci/patches/610-console-release-ack.patch
+      - name: Build paired NVRM and NVRMFB
+        run: python3 ci/build-macos-kexts.py --vendor .deps/open-gpu-kernel-modules --output build-out --jobs 4
+      - name: Package with verified official 2.0.4 user space
+        run: python3 ci/package-experiment.py --output build-out
+      - name: Build checksum-paired offline installer
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          package = Path('build-out/nullmoth-2.0.4-rtx6000-console-retire-experiment.tar.gz')
+          with package.open('rb') as f: value = hashlib.file_digest(f, 'sha256').hexdigest()
+          source = Path('app/Sources/main.swift')
+          text = source.read_text()
+          assert text.count('__EXPERIMENT_PACKAGE_SHA256__') == 1
+          source.write_text(text.replace('__EXPERIMENT_PACKAGE_SHA256__', value))
+          PY
+          bash app/build.sh "$GITHUB_WORKSPACE/app-build"
+          mv app-build/1401.app app-build/1401-RTX6000-Console-Test.app
+          codesign --verify --deep --strict app-build/1401-RTX6000-Console-Test.app
+          xcrun lipo app-build/1401-RTX6000-Console-Test.app/Contents/MacOS/1401 -verify_arch x86_64
+          ditto -c -k --sequesterRsrc --keepParent app-build/1401-RTX6000-Console-Test.app build-out/1401-Mac-2.0.4-RTX6000-Console-Test.zip
+          shasum -a 256 build-out/1401-Mac-2.0.4-RTX6000-Console-Test.zip >> build-out/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rtx6000-console-2.0.4-${{ github.run_number }}
+          path: |
+            build-out/logs/
+            build-out/kexts/
+            build-out/build-proof.json
+            build-out/SHA256SUMS.txt
+            build-out/nullmoth-2.0.4-rtx6000-console-retire-experiment.tar.gz
+            build-out/1401-Mac-2.0.4-RTX6000-Console-Test.zip
+          if-no-files-found: warn
+          retention-days: 14

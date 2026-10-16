@@ -1,0 +1,102 @@
+--- a/src/nvidia-modeset/include/nvkms-rm.h
++++ b/src/nvidia-modeset/include/nvkms-rm.h
+@@ -104,7 +104,7 @@
+ NvBool nvRmVTSwitch(NVDevEvoPtr pDevEvo, NvU32 cmd);
+ NvBool nvRmGetVTFBInfo(NVDevEvoPtr pDevEvo);
+ void nvRmImportFbConsoleMemory(NVDevEvoPtr pDevEvo);
+-void nvRmUnmapFbConsoleMemory(NVDevEvoPtr pDevEvo);
++NvBool nvRmUnmapFbConsoleMemory(NVDevEvoPtr pDevEvo);
+ NvBool nvRmAllocEvoDma(NVDevEvoPtr pDevEvo,
+                        NVEvoDmaPtr pDma,
+                        NvU64 limit,
+--- a/src/nvidia-modeset/src/nvkms-rm.c
++++ b/src/nvidia-modeset/src/nvkms-rm.c
+@@ -4717,7 +4717,7 @@
+     nvFreeUnixRmHandle(&pDevEvo->handleAllocator, hMemory);
+ }
+ 
+-void nvRmUnmapFbConsoleMemory(NVDevEvoPtr pDevEvo)
++NvBool nvRmUnmapFbConsoleMemory(NVDevEvoPtr pDevEvo)
+ {
+     struct NvKmsPerOpenDev *pOpenDev = pDevEvo->pNvKmsOpenDev;
+     NVEvoApiHandlesRec *pOpenDevSurfaceHandles =
+@@ -4731,7 +4731,7 @@
+     NvU32 status;
+ 
+     if (!pSurfaceEvo) {
+-        return;
++        return pDevEvo->fbConsoleSurfaceHandle == 0;
+     }
+ 
+     // Tell Resman that the surface mapping is no longer needed.
+@@ -4739,8 +4739,7 @@
+                             pSurfaceEvo->planes[0].rmHandle,
+                             NV0076_CTRL_CMD_NOTIFY_CONSOLE_DISABLED,
+                             NULL, 0);
+-    (void)status;
+-    nvAssert(status == NVOS_STATUS_SUCCESS);
++    if (status != NVOS_STATUS_SUCCESS) return FALSE;
+ 
+     // Free the NVKMS surface.
+     nvEvoUnregisterSurface(pDevEvo, pDevEvo->pNvKmsOpenDev,
+@@ -4748,6 +4747,7 @@
+                            TRUE /* skipUpdate */,
+                            FALSE /* skipSync */);
+     pDevEvo->fbConsoleSurfaceHandle = 0;
++    return TRUE;
+ }
+ 
+ static void LogAuxPacket(const NVDispEvoRec *pDispEvo, const DPAUXPACKET *pkt)
+--- a/src/nvidia-modeset/src/nvkms.c
++++ b/src/nvidia-modeset/src/nvkms.c
+@@ -4942,8 +4942,7 @@
+         return FALSE;
+     }
+ 
+-    nvRmUnmapFbConsoleMemory(pOpenDev->pDevEvo);
+-    return TRUE;
++    return nvRmUnmapFbConsoleMemory(pOpenDev->pDevEvo);
+ }
+ 
+ static NvBool RegisterVblankIntrCallback(struct NvKmsPerOpen *pOpen,
+--- a/src/nvidia-modeset/kapi/src/nvkms-kapi.c
++++ b/src/nvidia-modeset/kapi/src/nvkms-kapi.c
+@@ -4054,26 +4054,22 @@
+     }
+ }
+ 
+-static void FramebufferConsoleDisabled
+-(
+-    struct NvKmsKapiDevice *device
+-)
++// Personal experiment: report the real ioctl/RM result without changing the
++// public KAPI function-table layout. NVRM publishes this paired function pointer.
++NvBool nvKmsKapiConsoleReleaseAck(struct NvKmsKapiDevice *device);
++NvBool nvKmsKapiConsoleReleaseAck(struct NvKmsKapiDevice *device)
+ {
+     struct NvKmsFramebufferConsoleDisabledParams params = { };
+-    NvBool status;
+-
+-    if (device->hKmsDevice == 0x0) {
+-        return;
+-    }
+-
++    if (device == NULL || device->hKmsDevice == 0x0) return NV_FALSE;
+     params.request.deviceHandle = device->hKmsDevice;
+-
+-    status = nvkms_ioctl_from_kapi(device->pKmsOpen,
+-                                   NVKMS_IOCTL_FRAMEBUFFER_CONSOLE_DISABLED,
+-                                   &params, sizeof(params));
+-    if (!status) {
++    return nvkms_ioctl_from_kapi(device->pKmsOpen,
++        NVKMS_IOCTL_FRAMEBUFFER_CONSOLE_DISABLED, &params, sizeof(params));
++}
++
++static void FramebufferConsoleDisabled(struct NvKmsKapiDevice *device)
++{
++    if (!nvKmsKapiConsoleReleaseAck(device))
+         nvKmsKapiLogDeviceDebug(device, "NVKMS FramebufferConsoleDisabled failed");
+-    }
+ }
+ 
+ static struct NvKmsKapiVblankIntrCallback*

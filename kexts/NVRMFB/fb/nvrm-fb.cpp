@@ -30,6 +30,7 @@
 #include "nvrm-hud.h"
 #include "nvrm-fb-safety.h"
 #include "nvrm-allocation-table.h"
+#include "nvrm-console-lifetime.h"
 static IORecursiveLock *startLock();
 class NVRMCallReference {
     OSObject *owner;
@@ -216,6 +217,10 @@ class NVRMNVDAFramebuffer : public IOFramebuffer {
     OSDeclareDefaultStructors(NVRMNVDAFramebuffer)
     struct NvKmsKapiFunctionsTable *fKms = nullptr; NvU32 fGpuId = 0; nvrm_phys_for_va_t fPhysForVa = nullptr;
     struct NvKmsKapiDevice *fDev = nullptr;
+    NvBool (*fConsoleReleaseAck)(struct NvKmsKapiDevice *) = nullptr;
+    unsigned fConsoleWaitLogs = 0;
+    void retireBootConsole();
+    void clearConsoleProbe();
     NvKmsKapiDisplay fDisplay = 0; NvKmsKapiConnector fConnector = 0; NvU32 fHead = 0;
     unsigned fIndex = 0; bool fOwnsHead = false;
     bool fBootConsole = false;
@@ -456,6 +461,7 @@ struct nvrm_dpy_rec {
     NvU32 edidSize; NvU8 edid[NVKMS_KAPI_EDID_BUFFER_SIZE];
 };
 static struct NvKmsKapiDevice *gDev;
+static NVRMConsoleLifetime gConsoleLifetime;
 static struct nvrm_dpy_rec gDpy[NVKMS_KAPI_MAX_CONNECTORS * 2];
 static int gNDpy = -1;
 // How many displays the boot enumeration found. A framebuffer whose display index is >= this exists because a display
@@ -893,8 +899,8 @@ bool NVRMNVDAFramebuffer::kapiInit()
     }
     bool consoleSilenced = false;
     if (fIndex == 0 && getPlatform()) {
-        getPlatform()->setConsoleInfo(0, kPEDisableScreen);
-        consoleSilenced = true;
+        consoleSilenced = getPlatform()->setConsoleInfo(0, kPEDisableScreen) == kIOReturnSuccess;
+        gConsoleLifetime.kernelConsole(fDev, consoleSilenced);
         FBLOG("kernel console DISABLED (kPEDisableScreen) before allocating");
     }
     static const NvBool kTryOrder[2] = { NV_TRUE, NV_FALSE };
@@ -989,7 +995,10 @@ bool NVRMNVDAFramebuffer::kapiInit()
     if (!haveAperture) {
         FBLOG("NEITHER vidmem NOR sysmem gave a CPU-writable scanout aperture -- refusing to "
               "light a head at memory WindowServer cannot reach");
-        if (consoleSilenced && getPlatform()) getPlatform()->setConsoleInfo(0, kPEEnableScreen);
+        if (consoleSilenced && getPlatform()) {
+            getPlatform()->setConsoleInfo(0, kPEEnableScreen);
+            gConsoleLifetime.kernelConsole(fDev, false);
+        }
         return false;
     }
     publishTimingCaps();
@@ -1000,7 +1009,10 @@ bool NVRMNVDAFramebuffer::kapiInit()
     if (!fSurf) {
         FBLOG("createSurface failed");
         if (fScanoutBarBytes) { OSAddAtomic64(-(SInt64)fScanoutBarBytes, &gVramDisplayBytes); fScanoutBarBytes = 0; }
-        if (consoleSilenced && getPlatform()) getPlatform()->setConsoleInfo(0, kPEEnableScreen);
+        if (consoleSilenced && getPlatform()) {
+            getPlatform()->setConsoleInfo(0, kPEEnableScreen);
+            gConsoleLifetime.kernelConsole(fDev, false);
+        }
         return false;
     }
     {
@@ -1045,6 +1057,7 @@ bool NVRMNVDAFramebuffer::kapiInit()
         fConsPhys = fVtFbBase; fConsSize = fVtFbSize;
         if (!fConsPitch) fConsPitch = 8192;
     }
+    if (gConsoleLifetime.retiredFor(fDev)) fConsPhys = fConsSize = fConsPitch = 0;
     if (fConsSize) {
         IOMemoryDescriptor *cm = NULL;
         if (IOService *nub = pciNub()) {
@@ -1430,6 +1443,7 @@ void NVRMNVDAFramebuffer::sampleFire(thread_call_param_t p0, thread_call_param_t
     NVRMNVDAFramebuffer *me = (NVRMNVDAFramebuffer *)p0;
     NVRMCallReference callReference(me);
     if (OSAddAtomic(0, &me->fStopping)) return;
+    NVRMDisplayGate gate; if (!gate.valid()) return;
     if (!me->fKva) return;
     volatile uint32_t *px = (volatile uint32_t *)((me->fConsoleAperture && me->fConsKva) ? me->fConsKva : me->fKva);
     unsigned w = me->fW, h = me->fH, ppr = me->fPitch / 4;
@@ -1851,12 +1865,18 @@ bool NVRMNVDAFramebuffer::applyMode()
     NvBool ok = submitConfig(cfg, rep, NV_TRUE, true);
     fLastOk = (unsigned)ok; fFlipResult = (int)rep->flipResult;
     FBLOG("applyModeSetConfig -> %u (flipResult %d)", ok, (int)rep->flipResult);
-    if (ok && fKms->framebufferConsoleDisabled) {
+    const bool consoleExperiment = fConsoleReleaseAck && fBarLen == (256ull << 20) &&
+        gBootHead >= 0 && gConsoleLifetime.device == fDev && gConsoleLifetime.kernelDisabled;
+    if (ok && !consoleExperiment && fKms->framebufferConsoleDisabled) {
         fKms->framebufferConsoleDisabled(fDev);
         FBLOG("framebufferConsoleDisabled() sent -- NVKMS releases the old GOP console");
     }
     IOFree(cfg, sizeof *cfg); IOFree(rep, sizeof *rep);
     fModeSet = ok;
+    if (ok) {
+        gConsoleLifetime.submitted(fDev, fHead);
+        retireBootConsole();
+    }
     return ok;
 }
 
@@ -1923,6 +1943,7 @@ bool NVRMNVDAFramebuffer::start(IOService *provider)
     if (fHotplugBorn && !gConnectNotify) gConnectNotify = thread_call_allocate(connectNotifyFire, nullptr);
     if (fHotplugBorn) FBLOG("fb%u: a display appeared after boot -- the connect interrupt will be fired once the head has a mode", fIndex);
     fPhysForVa = (nvrm_phys_for_va_t)(uintptr_t)propU64(provider, "phys-for-va");
+    fConsoleReleaseAck = (NvBool (*)(struct NvKmsKapiDevice *))(uintptr_t)propU64(provider, "console-release-ack");
     if (!fKms || !fPhysForVa || !fKms->getFlipPendingStatus || !fKms->dupMemory) { FBLOG("nub lacks nvkms-kapi/phys-for-va properties"); return false; }
     setProperty("IOFBDependentID", (unsigned long long)0x4E56524D00000001ull, 64);
     setProperty("IOFBDependentIndex", (unsigned long long)fIndex, 32);
@@ -2577,9 +2598,75 @@ static inline SInt64 nvrmParkCeiling(NvU64 barLen)
     if (barLen && barLen < (256ull << 20)) return (SInt64)(barLen / 4);   // 64 MB BAR1: 16 MB, not half the window
     return (SInt64)(barLen && barLen < (1ull << 30) ? 32ull * 1024ull * 1024ull : NVRM_VRAM_PARK_CEILING);
 }
-static struct { struct NvKmsKapiMemory *m; void *k; NvU64 n; } gParkedForever[64];
+static struct {
+    struct NvKmsKapiMemory *m;
+    void *k;
+    NvU64 n, phys;
+    struct NvKmsKapiDevice *device;
+    bool consoleOnly;
+} gParkedForever[64];
 static int      gNParkedForever   = 0;
 static volatile SInt64 gVramParkedBytes = 0;
+static volatile SInt64 gConsoleReclaimedBytes = 0;
+static int gConsoleRetired = 0;
+SYSCTL_INT(_debug, OID_AUTO, nvrmfb_console_retired, CTLFLAG_RD | CTLFLAG_LOCKED, &gConsoleRetired, 0, "confirmed boot-console handoff in the 256 MiB experiment");
+SYSCTL_QUAD(_debug, OID_AUTO, nvrmfb_console_reclaimed_bytes, CTLFLAG_RD | CTLFLAG_LOCKED, (SInt64 *)&gConsoleReclaimedBytes, "only console guard mappings reclaimed after handoff");
+SYSCTL_QUAD(_debug, OID_AUTO, nvrmfb_vram_parked_bytes, CTLFLAG_RD | CTLFLAG_LOCKED, (SInt64 *)&gVramParkedBytes, "BAR1 held by overlap guards, separate from sticky surface allocations");
+
+void NVRMNVDAFramebuffer::clearConsoleProbe()
+{
+    // Callers and sampleFire hold NVRMDisplayGate: no diagnostic read can keep
+    // using the old mapping while it is released or reused for a surface.
+    fConsKva = nullptr;
+    OSSafeReleaseNULL(fConsMap);
+    OSSafeReleaseNULL(fConsMem);
+    fConsPhys = fConsSize = fConsPitch = 0;
+}
+
+void NVRMNVDAFramebuffer::retireBootConsole()
+{
+    if (!fConsoleReleaseAck || fConsoleAperture || fSubmissionFaulted ||
+        !gConsoleLifetime.eligible(fDev, fBarLen, gBootHead, gHeadsTaken)) return;
+    // An accepted bootstrap is not proof that scanout moved. Every claimed
+    // head must have its submitted primary plane latched before the old
+    // firmware console address is available for unrelated resources.
+    for (unsigned h = 0; h < 32; h++) if (gHeadsTaken & (1u << h)) {
+        NvBool pending = NV_TRUE;
+        if (!fKms->getFlipPendingStatus(fDev, h, NVKMS_KAPI_LAYER_PRIMARY_IDX, &pending) || pending) {
+            if (fConsoleWaitLogs++ < 4) FBLOG("console-retire: waiting for head %u primary completion; guard retained", h);
+            return;
+        }
+    }
+    for (auto fb : gFBs) if (fb && fb->fDev == fDev &&
+        (fb->fConsoleAperture || fb->fSubmissionFaulted)) return;
+    if (!fConsoleReleaseAck(fDev)) {
+        FBLOG("console-retire: release NOT acknowledged; old console protection retained");
+        return;
+    }
+    gConsoleLifetime.retired = true;
+    gConsoleRetired = 1;
+    clearConsoleProbe();
+    for (auto fb : gFBs) if (fb && fb != this && fb->fDev == fDev) fb->clearConsoleProbe();
+    SInt64 reclaimed = 0;
+    for (int i = 0; i < gNParkedForever; ) {
+        auto &entry = gParkedForever[i];
+        bool liveOverlap = nvrmConsoleRangesOverlap(entry.phys, entry.n, fPhys, fMemBytes);
+        for (auto fb : gFBs) if (fb && fb->fDev == fDev)
+            liveOverlap |= nvrmConsoleRangesOverlap(entry.phys, entry.n, fb->fPhys, fb->fMemBytes);
+        if (entry.device != fDev || !entry.consoleOnly || liveOverlap) { i++; continue; }
+        // Parked guards were never handed to a caller or a flip cache. No
+        // normal resource, sticky allocation, front or pending surface is freed.
+        fKms->unmapMemory(fDev, entry.m, NVKMS_KAPI_MAPPING_TYPE_KERNEL, entry.k);
+        fKms->freeMemory(fDev, entry.m);
+        reclaimed += (SInt64)entry.n;
+        OSAddAtomic64(-(SInt64)entry.n, &gVramParkedBytes);
+        gParkedForever[i] = gParkedForever[--gNParkedForever];
+        gParkedForever[gNParkedForever] = {};
+    }
+    OSAddAtomic64(reclaimed, &gConsoleReclaimedBytes);
+    FBLOG("console-retire: CONFIRMED device %p heads %#x, reclaimed %lld bytes, parked %lld; live scanouts remain protected",
+          fDev, gHeadsTaken, (long long)reclaimed, (long long)gVramParkedBytes);
+}
 static volatile SInt64 gCntGrant, gCntGrantBytes, gCntRelease, gCntReleaseBytes;
 SYSCTL_QUAD(_debug, OID_AUTO, nvrmfb_vram_grants,        CTLFLAG_RD | CTLFLAG_LOCKED, (SInt64 *)&gCntGrant,        "vramGrant successes");
 SYSCTL_QUAD(_debug, OID_AUTO, nvrmfb_vram_grant_bytes,   CTLFLAG_RD | CTLFLAG_LOCKED, (SInt64 *)&gCntGrantBytes,   "bytes granted");
@@ -2635,6 +2722,9 @@ static void nvrmfbInstallSysctl(void)
     sysctl_register_oid(&sysctl__debug_nvrmfb_vram_releases); sysctl_register_oid(&sysctl__debug_nvrmfb_vram_release_bytes);
     sysctl_register_oid(&sysctl__debug_nvrmfb_vram_mapped_bytes); sysctl_register_oid(&sysctl__debug_nvrmfb_vram_budget_bytes);
     sysctl_register_oid(&sysctl__debug_nvrmfb_vram_display_bytes); sysctl_register_oid(&sysctl__debug_nvrmfb_vram_display_aware);
+    sysctl_register_oid(&sysctl__debug_nvrmfb_console_retired);
+    sysctl_register_oid(&sysctl__debug_nvrmfb_console_reclaimed_bytes);
+    sysctl_register_oid(&sysctl__debug_nvrmfb_vram_parked_bytes);
     sysctl_register_oid(&sysctl__debug_nvrmfb_vramtest); sysctl_register_oid(&sysctl__debug_nvrmfb_vramtest_mode);
     sysctl_register_oid(&sysctl__debug_nvrmfb_flip_interval); sysctl_register_oid(&sysctl__debug_nvrmfb_flip_us_sum);
     sysctl_register_oid(&sysctl__debug_nvrmfb_flip_n); sysctl_register_oid(&sysctl__debug_nvrmfb_flip_us_max);
@@ -2649,6 +2739,7 @@ bool NVRMNVDAFramebuffer::vramGrant(struct NVRMVramRequest *r)
     nvrmfbInstallSysctl();
     r->phys = 0; r->kva = nullptr; r->handle = nullptr; r->actualSize = 0; r->mappedTotal = 0;
     if (!fKms || !fDev) { FBLOG("nvAllocVram: no NVKMS device yet"); return false; }
+    retireBootConsole();
     NvU64 want = (r->size + 0xFFFFull) & ~0xFFFFull;
     if (!want) return false;
 
@@ -2660,8 +2751,9 @@ bool NVRMNVDAFramebuffer::vramGrant(struct NVRMVramRequest *r)
     if (before + (SInt64)want > budget) {
         OSAddAtomic64(-(SInt64)want, &gVramMappedBytes);
         FBLOG("nvAllocVram(%llu): REFUSED — BAR1 budget spent (%lld of %llu bytes). "
-              "This is the resizable-BAR ceiling, not a VRAM shortage.",
-              (unsigned long long)want, (long long)before, (unsigned long long)budget);
+              "This is the resizable-BAR ceiling, not a VRAM shortage. mapped %lld, guard %lld, console retired %u",
+              (unsigned long long)want, (long long)before, (unsigned long long)budget,
+              (long long)gVramMappedBytes, (long long)gVramParkedBytes, (unsigned)gConsoleLifetime.retiredFor(fDev));
         return false;
     }
 
@@ -2690,7 +2782,7 @@ bool NVRMNVDAFramebuffer::vramGrant(struct NVRMVramRequest *r)
         }
         NvU64 p = fPhysForVa ? fPhysForVa(k) : 0;
         bool onScanout = p && fPhys  && fSize     && p < (fPhys + fSize)         && (p + want) > fPhys;
-        bool onConsole = p && fConsPhys && fConsSize && p < (fConsPhys + fConsSize) && (p + want) > fConsPhys;
+        bool onConsole = !gConsoleLifetime.retiredFor(fDev) && p && fConsPhys && fConsSize && p < (fConsPhys + fConsSize) && (p + want) > fConsPhys;
         if (!p) {
             // No physical address means RM's mapping table could not record this mapping. Parking it would hold one
             // more mapping per attempt and the next attempt fails the same way: release it and refuse this request.
@@ -2711,6 +2803,9 @@ bool NVRMNVDAFramebuffer::vramGrant(struct NVRMVramRequest *r)
                 gParkedForever[gNParkedForever].m = m;
                 gParkedForever[gNParkedForever].k = k;
                 gParkedForever[gNParkedForever].n = want;
+                gParkedForever[gNParkedForever].phys = p;
+                gParkedForever[gNParkedForever].device = fDev;
+                gParkedForever[gNParkedForever].consoleOnly = onConsole && !onScanout;
                 gNParkedForever++;
                 OSAddAtomic64((SInt64)want, &gVramParkedBytes);
             } else {
@@ -2737,6 +2832,9 @@ bool NVRMNVDAFramebuffer::vramGrant(struct NVRMVramRequest *r)
                             gParkedForever[gNParkedForever].m = gm;
                             gParkedForever[gNParkedForever].k = gk;
                             gParkedForever[gNParkedForever].n = g;
+                            gParkedForever[gNParkedForever].phys = gpa;
+                            gParkedForever[gNParkedForever].device = fDev;
+                            gParkedForever[gNParkedForever].consoleOnly = onConsole && !onScanout;
                             gNParkedForever++;
                             OSAddAtomic64((SInt64)g, &gVramParkedBytes);
                             guarded = true;
@@ -2781,7 +2879,7 @@ bool NVRMNVDAFramebuffer::vramGrant(struct NVRMVramRequest *r)
     advanceFlipEpoch();   // before the caller can see this memory, so it can never match an entry made for a freed one
     r->handle = mem; r->kva = kva; r->phys = (unsigned long long)phys;
     r->actualSize = (unsigned long long)want;
-    r->mappedTotal = (unsigned long long)(before + (SInt64)want);
+    r->mappedTotal = (unsigned long long)(gVramMappedBytes + gVramParkedBytes);
     fVramGrants++;
     OSAddAtomic64(1, &gCntGrant); OSAddAtomic64((SInt64)want, &gCntGrantBytes);
     if (fVramGrantLogged < 16) { fVramGrantLogged++;

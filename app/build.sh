@@ -43,9 +43,9 @@ cat > "$APP/Contents/Info.plist" <<PL
 <key>CFBundleDevelopmentRegion</key><string>en</string>
 <key>CFBundleExecutable</key><string>1401</string>
 <key>CFBundleIconFile</key><string>1401</string>
-<key>CFBundleIdentifier</key><string>com.nullmoth.1401</string>
-<key>CFBundleName</key><string>1401</string>
-<key>CFBundleDisplayName</key><string>1401</string>
+<key>CFBundleIdentifier</key><string>com.yuanjing-hash.1401.rtx6000.console</string>
+<key>CFBundleName</key><string>1401 RTX6000 Console Test</string>
+<key>CFBundleDisplayName</key><string>1401 RTX6000 Console Test</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>2.0.4</string>
 <key>CFBundleVersion</key><string>87</string>

@@ -1,0 +1,6 @@
+Based on official v2.0.4. No contiguous-SYSMEM patch.
+The only runtime experiment is confirmed boot-console handoff and selective guard reclamation on 256 MiB BAR1.
+Keep official sticky VRAM, framebuffer re-backing, flip completion, FSP timer, copy path, budget and margin.
+Installer removal preserves the live EFI BAR settings across backup restoration.
+No firmware, VBIOS, disk or EFI publication is performed by this workflow.
+Physical dual-4K desktop acceptance is pending.

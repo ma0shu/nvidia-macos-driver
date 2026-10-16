@@ -54,6 +54,7 @@ extern "C" nv_state_t *nv_xnu_gpu_state(void);
 extern "C" void nv_xnu_log_init(void);
 extern "C" void *nvkms_xnu_kapi_table(void);
 extern "C" NvU64 nv_xnu_phys_for_kernel_va(const void *va);
+extern "C" NvBool nvKmsKapiConsoleReleaseAck(void *device);
 class NVRMDisplay : public IOService { OSDeclareDefaultStructors(NVRMDisplay) };
 OSDefineMetaClassAndStructors(NVRMDisplay, IOService)
 #define NVRM_MAX_HEADS 4
@@ -75,6 +76,7 @@ static void nvrm_display_publish(IOService *provider, NvU32 gpuId)
         nub->setProperty("nvkms-kapi", (unsigned long long)(uintptr_t)kapi, 64);
         nub->setProperty("gpu-id", (unsigned long long)gpuId, 32);
         nub->setProperty("phys-for-va", (unsigned long long)(uintptr_t)&nv_xnu_phys_for_kernel_va, 64);
+        nub->setProperty("console-release-ack", (unsigned long long)(uintptr_t)&nvKmsKapiConsoleReleaseAck, 64);
         nub->setProperty("fb-index", (unsigned long long)i, 32);
         if (!nub->attach(provider)) { nub->release(); break; }
         nub->registerService();

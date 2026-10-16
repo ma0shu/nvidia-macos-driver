@@ -78,7 +78,8 @@ class RemovalPreflight(unittest.TestCase):
         c=plistlib.loads(self.cfg.read_bytes())
         self.assertEqual(c['NVRAM']['Add'][BOOT]['boot-args'],'-v custom=1')
         self.assertEqual(c['Misc']['Tools'],[])
-        self.assertEqual(c['UEFI']['Quirks']['ResizeGpuBars'],-1)
+        self.assertEqual(c['UEFI']['Quirks']['ResizeGpuBars'],13)
+        self.assertEqual(c['Booter']['Quirks']['ResizeAppleGpuBars'],-1)
         self.assertFalse(c['Kernel']['Block'][0]['Enabled'])
     def test_removal_clears_only_owned_update_parking_entries(self):
         self.config['Kernel']['Block'] += [
@@ -113,7 +114,31 @@ class RemovalPreflight(unittest.TestCase):
         c=plistlib.loads(self.cfg.read_bytes())
         self.assertEqual(c['NVRAM']['Add'][BOOT]['boot-args'],'-v custom=1')
         self.assertFalse(self.recover.exists());self.assertFalse(self.tool.exists());self.assertFalse(self.state.exists())
+        self.assertEqual(c['UEFI']['Quirks']['ResizeGpuBars'],13)
+        self.assertEqual(c['Booter']['Quirks']['ResizeAppleGpuBars'],-1)
+
+    def test_old_64MiB_backup_cannot_replace_current_256MiB_settings(self):
+        self.config['UEFI']['Quirks']['ResizeGpuBars']=-1
+        self.cfg.write_bytes(plistlib.dumps(self.config))
+        old=plistlib.loads(self.back.read_bytes())
+        old['UEFI']['Quirks']['ResizeGpuBars']=-1
+        old['Booter']['Quirks']['ResizeAppleGpuBars']=0
+        self.back.write_bytes(plistlib.dumps(old))
+        digest=hashlib.sha256(self.cfg.read_bytes()).hexdigest()
+        self.state.write_text(self.state.read_text().replace("CONFIG_SHA_AFTER='changed'", "CONFIG_SHA_AFTER='"+digest+"'"))
+        result=self.run_remove();self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        c=plistlib.loads(self.cfg.read_bytes())
         self.assertEqual(c['UEFI']['Quirks']['ResizeGpuBars'],-1)
+        self.assertEqual(c['Booter']['Quirks']['ResizeAppleGpuBars'],-1)
+
+    def test_existing_small_installer_settings_are_preserved(self):
+        self.config['UEFI']['Quirks']['ResizeGpuBars']=-1
+        self.config['Booter']['Quirks']['ResizeAppleGpuBars']=0
+        self.cfg.write_bytes(plistlib.dumps(self.config))
+        result=self.run_remove();self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        c=plistlib.loads(self.cfg.read_bytes())
+        self.assertEqual(c['UEFI']['Quirks']['ResizeGpuBars'],-1)
+        self.assertEqual(c['Booter']['Quirks']['ResizeAppleGpuBars'],0)
 
     def test_preexisting_amfi_args_survive_original_backup_restore(self):
         original_args='-v amfi=0x80 amfi_get_out_of_my_way=0x1 custom=1'

@@ -562,6 +562,11 @@ if [ $REMOVE = 1 ]; then
   if [ -n "$C" ]; then
     step "Checking the OpenCore removal settings"
     ORIGINAL_CONFIG=$C
+    REMOVE_KEEP_BAR=$(get UEFI.Quirks.ResizeGpuBars)
+    REMOVE_KEEP_APPLE_BAR=$(get Booter.Quirks.ResizeAppleGpuBars)
+    for value in "$REMOVE_KEEP_BAR" "$REMOVE_KEEP_APPLE_BAR"; do
+      case "$value" in -1|[0-9]|1[0-9]) ;; *) stop "cannot read the current GPU BAR settings - nothing changed";; esac
+    done
     C="$ORIGINAL_CONFIG.nullmoth-remove-new"
     cp -p "$ORIGINAL_CONFIG" "$C" || stop "could not stage the OpenCore removal settings - nothing changed"
     if [ "$(shasum -a 256 "$C" | awk '{print $1}')" = "$CONFIG_SHA_AFTER" ] && [ -f "$MP/$CONFIG_BACKUP_REL" ]; then
@@ -606,8 +611,10 @@ if [ $REMOVE = 1 ]; then
       restore_boot Misc.Boot.ShowPicker   -bool   true    "${SET_SHOWPICKER:-0}"  "${OLD_SHOWPICKER:-}"  || stop "could not stage the recorded picker setting - nothing changed"
       restore_boot Misc.Boot.HideAuxiliary -bool  false   "${SET_HIDEAUX:-0}"     "${OLD_HIDEAUX:-}"     || stop "could not stage the recorded auxiliary setting - nothing changed"
       restore_boot Misc.Boot.PickerMode   -string Builtin "${SET_PICKERMODE:-0}"  "${OLD_PICKERMODE:-}"  || stop "could not stage the recorded picker mode - nothing changed"
-      # back to the installer-safe settings 1401 wrote: small BAR for macOS, firmware framebuffer allowed
-      plutil -replace UEFI.Quirks.ResizeGpuBars -integer -1 "$C" && plutil -replace Booter.Quirks.ResizeAppleGpuBars -integer 0 "$C" || stop "could not stage installer-safe BAR settings - nothing changed"
+      # Keep the settings of the working EFI, including when an older backup is
+      # restored above. -nvoff is independent of BAR size; shrinking here made
+      # every uninstall/reinstall turn the RTX6000's 256 MiB aperture into 64 MiB.
+      plutil -replace UEFI.Quirks.ResizeGpuBars -integer "$REMOVE_KEEP_BAR" "$C" && plutil -replace Booter.Quirks.ResizeAppleGpuBars -integer "$REMOVE_KEEP_APPLE_BAR" "$C" || stop "could not preserve GPU BAR settings - nothing changed"
       bi=$(bidx 2>/dev/null); if [ -n "$bi" ]; then plutil -replace Kernel.Block.$bi.Enabled -bool false "$C" || stop "could not stage firmware display support - nothing changed"; fi
 
     plutil -lint "$C" >/dev/null || stop "the staged removal config is invalid - nothing changed"
