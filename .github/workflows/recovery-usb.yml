@@ -1,0 +1,30 @@
+name: Recovery USB toolkit checks
+on:
+  workflow_dispatch:
+  push:
+    branches: [test/recovery-usb-toolkit]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: macos-15-intel
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+          persist-credentials: false
+      - name: Native Intel macOS plist, rollback and account checks
+        run: |
+          mkdir -p recovery-results
+          set -o pipefail
+          sw_vers | tee recovery-results/host.txt
+          for script in ci/recovery-usb/scripts/recovery-toolkit/*.sh; do /bin/bash -n "$script"; done
+          runner_python=$(command -v python3)
+          sudo "$runner_python" ci/recovery-usb/scripts/test_recovery_toolkit.py 2>&1 | tee recovery-results/tests.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recovery-usb-native-checks
+          path: recovery-results
+          retention-days: 7
