@@ -24,7 +24,7 @@ KEXTS='NVRM NVAccel NVRMFB NVRMAGDC'
 USB_ROOT=$(cd "$HERE/../.." && pwd -P) || stop 'Cannot locate the USB root.'
 case "$USB_ROOT" in /Volumes/*) ;; *) stop 'Start the kit from the USB volume.';; esac
 echo
-echo 'Dell 7920 / RTX6000 - Recovery driver toolkit 2'
+echo 'Dell 7920 / RTX6000 - Recovery driver toolkit 3'
 echo "Package: $(get "$MANIFEST" Package:Label)"
 echo '1  Install / replace driver (no prior uninstall needed)'
 echo '2  Collect logs only'
@@ -69,7 +69,7 @@ for k in $KEXTS; do
         [ "$(get "$EXT/$k.kext/Contents/Info.plist" CFBundleIdentifier)" = "com.nullmoth.$k" ] || stop "Unexpected installed $k identity."
     fi
 done
-for rel in Library/NullMoth/state Library/NullMoth/install.lock Library/GPUBundles/nvmtl Users/Shared/nvfw Library/KernelCollections/AuxiliaryKernelExtensions.kc; do safe_data_path "$rel"; done
+for rel in Library/NullMoth/state Library/NullMoth/install.lock Library/GPUBundles/nvmtl Users/Shared/nvfw Library/NullMoth/nvfw Library/KernelCollections/AuxiliaryKernelExtensions.kc; do safe_data_path "$rel"; done
 free_kb=$(df -Pk "$DATA_ROOT" | awk 'END {print $4}')
 case "$free_kb" in ''|*[!0-9]*) stop 'Cannot measure free space.';; esac
 [ "$free_kb" -ge 4194304 ] || stop 'At least 4 GiB free is required on the installed Data volume.'
@@ -86,8 +86,8 @@ txn_begin
 for k in $KEXTS; do txn_save "Library/Extensions/$k.kext"; done
 for b in NVMTLDriver.bundle NVIDIAShared.bundle nvmtl nvmtl-allow.txt; do txn_save "Library/GPUBundles/$b"; done
 txn_save Users/Shared/nvfw
-for n in kexts driver-version os-major state update-pending install.lock nullmoth-setup.sh uninstall.sh nullmoth-recover.sh nullmoth-displaytrace.sh nullmoth-wsreset.sh offline-build.json; do txn_save "Library/NullMoth/$n"; done
-for n in recover osupdate displaytrace wsreset; do txn_save "Library/LaunchDaemons/com.nullmoth.$n.plist"; done
+for n in nvfw kexts driver-version os-major state update-pending install.lock nullmoth-setup.sh uninstall.sh nullmoth-recover.sh nullmoth-displaytrace.sh nullmoth-wsreset.sh offline-build.json lastgood.sh; do txn_save "Library/NullMoth/$n"; done
+for n in recover osupdate displaytrace wsreset lastgood; do txn_save "Library/LaunchDaemons/com.nullmoth.$n.plist"; done
 txn_save Library/LaunchAgents/com.nullmoth.crashcheck.plist
 txn_save Library/KernelCollections/AuxiliaryKernelExtensions.kc
 if [ "$ACTION" = install ]; then
@@ -100,6 +100,12 @@ elif [ -s "$WORK/other-ids.txt" ]; then
     txn_put Library/KernelCollections/AuxiliaryKernelExtensions.kc "$WORK/final.kc"
 fi
 txn_commit
+# Clear old boot-guard counts once in Recovery; never add them to OC's per-boot Delete list.
+# Subsequent starts must still be counted by the official kernel's guard.
+if command -v nvram >/dev/null 2>&1; then
+    nvram -d "$GUID:nullmoth-nv-starts" 2>/dev/null || true
+    nvram -d "$GUID:nullmoth-nv-ok" 2>/dev/null || true
+fi
 printf 'Action=%s\nRollback=%s\nOC=%s\nAppleBAR=%s\nUEFIBAR=%s\n' "$ACTION" "$WORK" "$CFG" "$BAR_APPLE" "$BAR_UEFI" > "$OUT/SUCCESS.txt"
 echo
 echo "SUCCESS: $ACTION complete. BAR settings preserved: $BAR_APPLE / $BAR_UEFI."

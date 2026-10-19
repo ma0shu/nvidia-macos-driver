@@ -160,10 +160,10 @@ allowed_rel() {
     case "$1" in
         Library/Extensions/NVRM.kext|Library/Extensions/NVAccel.kext|Library/Extensions/NVRMFB.kext|Library/Extensions/NVRMAGDC.kext|\
         Library/GPUBundles/NVMTLDriver.bundle|Library/GPUBundles/NVIDIAShared.bundle|Library/GPUBundles/nvmtl|Library/GPUBundles/nvmtl-allow.txt|\
-        Users/Shared/nvfw|Library/KernelCollections/AuxiliaryKernelExtensions.kc|\
+        Users/Shared/nvfw|Library/NullMoth/nvfw|Library/KernelCollections/AuxiliaryKernelExtensions.kc|\
         Library/NullMoth/kexts|Library/NullMoth/driver-version|Library/NullMoth/os-major|Library/NullMoth/state|Library/NullMoth/update-pending|Library/NullMoth/install.lock|\
-        Library/NullMoth/nullmoth-setup.sh|Library/NullMoth/uninstall.sh|Library/NullMoth/nullmoth-recover.sh|Library/NullMoth/nullmoth-displaytrace.sh|Library/NullMoth/nullmoth-wsreset.sh|Library/NullMoth/offline-build.json|\
-        Library/LaunchDaemons/com.nullmoth.recover.plist|Library/LaunchDaemons/com.nullmoth.osupdate.plist|Library/LaunchDaemons/com.nullmoth.displaytrace.plist|Library/LaunchDaemons/com.nullmoth.wsreset.plist|Library/LaunchAgents/com.nullmoth.crashcheck.plist) return 0;;
+        Library/NullMoth/nullmoth-setup.sh|Library/NullMoth/uninstall.sh|Library/NullMoth/nullmoth-recover.sh|Library/NullMoth/nullmoth-displaytrace.sh|Library/NullMoth/nullmoth-wsreset.sh|Library/NullMoth/offline-build.json|Library/NullMoth/lastgood.sh|\
+        Library/LaunchDaemons/com.nullmoth.recover.plist|Library/LaunchDaemons/com.nullmoth.osupdate.plist|Library/LaunchDaemons/com.nullmoth.displaytrace.plist|Library/LaunchDaemons/com.nullmoth.wsreset.plist|Library/LaunchDaemons/com.nullmoth.lastgood.plist|Library/LaunchAgents/com.nullmoth.crashcheck.plist) return 0;;
         *) return 1;;
     esac
 }
@@ -197,6 +197,18 @@ prepare_config() {
     local args new='' a i=0 ident found=0 value
     args=$(get "$CFG_NEW" "NVRAM:Add:$GUID:boot-args") || stop 'Cannot read boot arguments.'
     for a in $args; do [ "$a" = -nvoff ] || new="$new $a"; done
+    if [ "$ACTION" = install ]; then
+        # Opt in to the 2.3.7 framebuffer trace for this diagnostic installation.
+        # Leave every explicit user value alone.
+        case " $new " in *" nvfbtrace="*) ;; *) new="$new nvfbtrace=1";; esac
+        i=0
+        while ident=$(get "$CFG_NEW" "Kernel:Add:$i:BundlePath"); do
+            if [ "$ident" = WhateverGreen.kext ] && [ "$(get "$CFG_NEW" "Kernel:Add:$i:Enabled")" = true ]; then
+                case " $new " in *" gfxrst="*) ;; *) new="$new gfxrst=4"; echo 'Staging gfxrst=4: enabled WhateverGreen must not copy the retired boot console.';; esac
+            fi
+            i=$((i+1))
+        done
+    fi
     plutil -replace "NVRAM.Add.$GUID.boot-args" -string "${new# }" "$CFG_NEW" || stop 'Cannot clear the temporary driver-off flag.'
     # OC clears stale remove requests and rewrites boot-args at the next start; no firmware writes here.
     if get "$CFG_NEW" "NVRAM:Add:$GUID:nullmoth-remove" >/dev/null; then

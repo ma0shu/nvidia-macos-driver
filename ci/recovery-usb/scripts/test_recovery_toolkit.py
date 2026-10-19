@@ -328,6 +328,13 @@ build_kc "$WORK/repo" "$WORK/candidate.kc" test
 
     @unittest.skipIf(os.name == 'nt', 'Apple native staged install/commit/remove integration')
     def test_native_staged_install_commit_and_remove_without_desktop_utilities(self):
+        self.staged_install_integration()
+
+    @unittest.skipUnless(os.name != 'nt' and os.environ.get('NULLMOTH_REAL_PACKAGE'), 'Pinned real 2.3.7 package is tested by the native CI job')
+    def test_native_real_official_237_payload_install_and_remove(self):
+        self.staged_install_integration(real_package=Path(os.environ['NULLMOTH_REAL_PACKAGE']))
+
+    def staged_install_integration(self, real_package=None):
         guid = '7C436110-AB2A-4BBB-A880-FE41995C9F82'
         kit = self.root / 'kit'; support = kit / 'Support'
         support.mkdir(parents=True); (kit / 'Packages').mkdir()
@@ -344,23 +351,35 @@ build_kc "$WORK/repo" "$WORK/candidate.kc" test
         for b in ['NVMTLDriver', 'NVIDIAShared']:
             d = payload / f'Library/GPUBundles/{b}.bundle/Contents/MacOS'; d.mkdir(parents=True)
             (d / b).write_bytes(b'test userland')
-        for rel, content in {'Library/GPUBundles/nvmtl/nvrm610.conf': '# fixture\n', 'Library/GPUBundles/nvmtl-allow.txt': '*\n', 'Users/Shared/nvfw/firmware.bin': 'firmware', 'VERSION': '2.0.4\n', 'EXPERIMENTAL-BUILD.json': '{}\n'}.items():
+        for rel, content in {'Library/GPUBundles/nvmtl/nvrm610.conf': '# fixture\n', 'Library/GPUBundles/nvmtl-allow.txt': '*\n', 'Users/Shared/nvfw/firmware.bin': 'firmware', 'VERSION': '2.3.7\n', 'uninstall.sh': '#!/bin/bash\nexit 0\n'}.items():
             p = payload / rel; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(content, newline='\n')
         manifest = ''.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.relative_to(payload).as_posix() + '\n' for p in sorted(payload.rglob('*')) if p.is_file())
         (payload / 'SHA256SUMS').write_text(manifest, newline='\n')
         package = kit / 'Packages/test.tar.gz'
         with tarfile.open(package, 'w:gz') as t:
             t.add(payload, arcname='pkgroot')
-        (kit / 'kit.plist').write_bytes(plistlib.dumps({'Package': {'File': 'Packages/test.tar.gz', 'SHA256': hashlib.sha256(package.read_bytes()).hexdigest(), 'Version': '2.0.4'}}))
+        if real_package:
+            with real_package.open('rb') as f:
+                self.assertEqual(hashlib.file_digest(f, 'sha256').hexdigest(), '237675011b81d60f8473a4f53ad08407e659e4a9fcf0dc571c5c15de579e39e6')
+            shutil.copyfile(real_package, package)
+        (kit / 'kit.plist').write_bytes(plistlib.dumps({'Package': {'File': 'Packages/test.tar.gz', 'SHA256': hashlib.sha256(package.read_bytes()).hexdigest(), 'Version': '2.3.7'}}))
+        (kit / 'official-build.json').write_text('{"channel":"official","driver_version":"2.3.7"}')
         # GPU payload is synthetic; the real runtime checker belongs to the paired package.
         # This fixture covers all shell staging paths, including SIP and both cache manifests.
         for name in ['nullmoth-runtime-check.sh', 'nullmoth-setup.sh', 'uninstall.sh', 'nullmoth-recover.sh', 'nullmoth-displaytrace.sh', 'nullmoth-wsreset.sh']:
             (support / name).write_text('#!/bin/bash\nexit 0\n', newline='\n')
         for name in ['recover', 'displaytrace', 'wsreset']:
             (support / f'com.nullmoth.{name}.plist').write_bytes(plistlib.dumps({'Label': name}))
+        if real_package:
+            with tarfile.open(package, 'r:gz') as t:
+                for name in ['nullmoth-runtime-check', 'nullmoth-runtime-check.sh']:
+                    (support / name).write_bytes(t.extractfile('pkgroot/' + name).read())
         fixture = {'Booter': {'Quirks': {'ResizeAppleGpuBars': -1}}, 'UEFI': {'Quirks': {'ResizeGpuBars': -1}}, 'NVRAM': {'Add': {guid: {'boot-args': '-v nvfb=1 nvaccel=1 -nvoff', 'csr-active-config': bytes.fromhex('430a0000')}}, 'Delete': {guid: []}}, 'Kernel': {'Block': [{'Identifier': 'com.apple.iokit.IONDRVSupport', 'Enabled': False}]}}
         self.cfg.write_bytes(plistlib.dumps(fixture))
         self.original()
+        legacy_fw = self.data / 'Users/Shared/nvfw'
+        legacy_fw.mkdir(parents=True)
+        (legacy_fw / 'old.bin').write_bytes(b'previous firmware')
         r = self.run_shell(f'''
 PB=/usr/libexec/PlistBuddy
 GUID={guid}; BAR_APPLE=-1; BAR_UEFI=-1; ESP_UUID=TEST-ESP; KEXTS='NVRM NVAccel NVRMFB NVRMAGDC'
@@ -373,15 +392,27 @@ verify_manifest "$WORK/stage/Library/NullMoth/kexts/15" "$WORK/stage/Library/Nul
 verify_manifest "$WORK/stage/Library/NullMoth/kexts/26" "$WORK/stage/Library/NullMoth/kexts/26/SHA256SUMS" || exit 1
 CFG_SHA=$(sha "$CFG") || exit 1
 txn_begin
+txn_save Users/Shared/nvfw
 while IFS= read -r rel; do txn_save "$rel"; txn_put "$rel" "$WORK/stage/$rel"; done < "$WORK/install-list.txt"
 txn_commit
 cp "$CFG" "$OUT/config-installed.plist"
+[ ! -e "$DATA_ROOT/Users/Shared/nvfw" ] && [ -d "$ST/nvfw" ] || exit 21
+[ -f "$WORK/old/Users/Shared/nvfw/old.bin" ] || exit 22
+[ "$(cat "$ST/driver-version")" = 2.3.7 ] || exit 23
+for k in $KEXTS; do
+    source="$WORK/payload/pkgroot/Library/Extensions/$k.kext/Contents/MacOS/$k"
+    [ "$k" != NVAccel ] || source="$WORK/payload/pkgroot/Library/NullMoth/kexts/15/NVAccel.kext/Contents/MacOS/NVAccel"
+    files_equal "$source" "$DATA_ROOT/Library/Extensions/$k.kext/Contents/MacOS/$k" || exit 24
+done
+files_equal "$WORK/payload/pkgroot/uninstall.sh" "$ST/uninstall.sh" || exit 25
 WORK="$DATA_ROOT/Users/Shared/NullMoth-Offline.remove"; mkdir -p "$WORK/old"
 ACTION=remove
 prepare_config
 CFG_SHA=$(sha "$CFG") || exit 1
 txn_begin
 for k in $KEXTS; do txn_save "Library/Extensions/$k.kext"; done
+txn_save Library/NullMoth/nvfw
+txn_save Users/Shared/nvfw
 txn_commit
 ''')
         self.assertIn('Verified', r.stdout)
@@ -394,9 +425,40 @@ txn_commit
             self.assertEqual(config['UEFI']['Quirks']['ResizeGpuBars'], -1)
         for k in ['NVRM', 'NVAccel', 'NVRMFB', 'NVRMAGDC']:
             self.assertFalse((self.data / f'Library/Extensions/{k}.kext').exists())
+        self.assertFalse((self.st / 'nvfw').exists())
+        self.assertFalse(legacy_fw.exists())
+        self.assertFalse((self.st / 'nullmoth-wsreset.sh').exists())
         state = (self.st / 'state').read_text(encoding='utf-8')
         self.assertIn("CONFIG_SHA_AFTER='", state)
         self.assertNotIn("CONFIG_SHA_AFTER=''", state)
+
+    def test_firmware_migration_rolls_back_old_and_new_locations_together(self):
+        legacy = self.data / 'Users/Shared/nvfw'; legacy.mkdir(parents=True)
+        (legacy / 'old.bin').write_bytes(b'old-fw')
+        self.run_shell('''txn_begin
+txn_save Users/Shared/nvfw
+txn_save Library/NullMoth/nvfw
+mkdir -p "$ST/nvfw"; echo partial > "$ST/nvfw/new.bin"
+rollback_transaction
+''')
+        self.assertEqual((legacy / 'old.bin').read_bytes(), b'old-fw')
+        self.assertFalse((self.st / 'nvfw').exists())
+
+    @unittest.skipIf(os.name == 'nt', 'Apple native plist parsing')
+    def test_new_config_keeps_boot_guard_counts_and_respects_explicit_gfxrst(self):
+        guid = '7C436110-AB2A-4BBB-A880-FE41995C9F82'
+        for explicit in ['', ' gfxrst=1']:
+            fixture = {'Booter': {'Quirks': {'ResizeAppleGpuBars': -1}}, 'UEFI': {'Quirks': {'ResizeGpuBars': -1}},
+                       'NVRAM': {'Add': {guid: {'boot-args': '-v nvfb=1 nvaccel=1' + explicit}}, 'Delete': {guid: []}},
+                       'Kernel': {'Add': [{'BundlePath': 'WhateverGreen.kext', 'Enabled': True}], 'Block': [{'Identifier': 'com.apple.iokit.IONDRVSupport', 'Enabled': False}]}}
+            self.cfg.write_bytes(plistlib.dumps(fixture))
+            self.run_shell(f'PB=/usr/libexec/PlistBuddy; GUID={guid}; BAR_APPLE=-1; BAR_UEFI=-1; ACTION=install; prepare_config')
+            result = plistlib.loads((self.work / 'config-next.plist').read_bytes())
+            args = result['NVRAM']['Add'][guid]['boot-args'].split()
+            self.assertIn('gfxrst=1' if explicit else 'gfxrst=4', args)
+            self.assertIn('nvfbtrace=1', args)
+            self.assertNotIn('nullmoth-nv-starts', result['NVRAM']['Delete'][guid])
+            self.assertNotIn('nullmoth-nv-ok', result['NVRAM']['Delete'][guid])
 
     @unittest.skipIf(os.name == 'nt', 'macOS account database integration')
     def test_native_windowserver_uid_from_offline_plist(self):

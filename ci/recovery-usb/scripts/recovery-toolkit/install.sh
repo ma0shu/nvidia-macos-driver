@@ -41,7 +41,9 @@ prepare_install() {
     for b in NVMTLDriver.bundle NVIDIAShared.bundle nvmtl nvmtl-allow.txt; do
         stage_copy "Library/GPUBundles/$b" "$payload/Library/GPUBundles/$b"
     done
-    stage_copy Users/Shared/nvfw "$payload/Users/Shared/nvfw"
+    # Release 2.3.7 still transports firmware under Users/Shared in the tar,
+    # but its kernel reads only the protected installed location below.
+    stage_copy Library/NullMoth/nvfw "$payload/Users/Shared/nvfw"
     stage_copy Library/NullMoth/kexts "$payload/Library/NullMoth/kexts"
     for a in 15 26; do
         dir="$WORK/stage/Library/NullMoth/kexts/$a"
@@ -51,12 +53,14 @@ prepare_install() {
     printf '15\n' > "$WORK/os-major"
     stage_copy Library/NullMoth/driver-version "$WORK/version"
     stage_copy Library/NullMoth/os-major "$WORK/os-major"
-    stage_copy Library/NullMoth/offline-build.json "$payload/EXPERIMENTAL-BUILD.json"
-    # Install the same logging/one-shot helpers as the paired app, including the BAR-preserving remover.
-    for a in nullmoth-setup.sh uninstall.sh nullmoth-recover.sh nullmoth-displaytrace.sh nullmoth-wsreset.sh; do
+    stage_copy Library/NullMoth/offline-build.json "$HERE/official-build.json"
+    # The uninstaller comes from this exact driver package, not an older app.
+    stage_copy Library/NullMoth/uninstall.sh "$payload/uninstall.sh"
+    # Keep the read-only diagnostic recorder, but no obsolete WindowServer restart job.
+    for a in nullmoth-setup.sh nullmoth-recover.sh nullmoth-displaytrace.sh; do
         stage_copy "Library/NullMoth/$a" "$HERE/Support/$a"
     done
-    for a in recover displaytrace wsreset; do
+    for a in recover displaytrace; do
         stage_copy "Library/LaunchDaemons/com.nullmoth.$a.plist" "$HERE/Support/com.nullmoth.$a.plist"
     done
     # Current config is the restore reference; never resurrect an earlier Apple BAR=0 backup.
@@ -84,10 +88,10 @@ prepare_install() {
         dir="$WORK/stage/Library/GPUBundles/nvmtl/$a"
         mkdir -p "$dir" && chown -R "$wsuid:$wsgid" "$dir" && chmod 755 "$dir" || stop 'Cannot prepare the protected shader cache.'
     done
-    # Existing system-specific NVK knobs are retained instead of silently resetting the experiment.
+    # Keep both historical 1401 and current upstream personal-settings markers.
     local current="$DATA_ROOT/Library/GPUBundles/nvmtl/nvrm610.conf"
     if [ -f "$current" ] && [ ! -L "$current" ]; then
-        sed -n '/^# --- 1401 per-system rules ---$/,/^# --- end 1401 per-system rules ---$/p' "$current" > "$WORK/knobs.txt"
+        sed -n '/^# --- 1401 per-system rules ---$/,/^# --- end 1401 per-system rules ---$/p; /^# --- my settings, kept on update ---$/,/^# --- end my settings ---$/p' "$current" > "$WORK/knobs.txt"
         if [ -s "$WORK/knobs.txt" ]; then
             cat "$WORK/knobs.txt" >> "$WORK/stage/Library/GPUBundles/nvmtl/nvrm610.conf" || stop 'Cannot preserve per-system knobs.'
         fi

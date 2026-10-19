@@ -14,6 +14,9 @@ jobs:
         with:
           lfs: false
           persist-credentials: false
+      - name: Download the pinned real official GPU package
+        run: |
+          curl --fail --location --retry 2 --max-time 180 -o "$RUNNER_TEMP/nullmoth-nvidia-2.3.7.tar.gz" https://github.com/nullmoth/nvidia-macos-driver/releases/download/v2.3.7/nullmoth-nvidia-2.3.7.tar.gz
       - name: Native Intel macOS plist, rollback and account checks
         run: |
           mkdir -p recovery-results
@@ -21,7 +24,7 @@ jobs:
           sw_vers | tee recovery-results/host.txt
           for script in ci/recovery-usb/scripts/recovery-toolkit/*.sh; do /bin/bash -n "$script"; done
           runner_python=$(command -v python3)
-          sudo "$runner_python" ci/recovery-usb/scripts/test_recovery_toolkit.py 2>&1 | tee recovery-results/tests.txt
+          sudo env NULLMOTH_REAL_PACKAGE="$RUNNER_TEMP/nullmoth-nvidia-2.3.7.tar.gz" "$runner_python" ci/recovery-usb/scripts/test_recovery_toolkit.py 2>&1 | tee recovery-results/tests.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
