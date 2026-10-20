@@ -38,8 +38,8 @@ jobs:
           git -C .deps/open-gpu-kernel-modules apply ../../ci/patches/610-macos-version-headers.patch
           git -C .deps/open-gpu-kernel-modules apply ../../kexts/NVRM/patches/610-fsp-timer-double-destroy.patch
           git -C .deps/open-gpu-kernel-modules apply ../../kexts/NVRM/patches/610-display-completion.patch
-          git -C .deps/open-gpu-kernel-modules apply ../../kexts/NVRM/patches/610-setmode-reason.patch
-          git -C .deps/open-gpu-kernel-modules apply ../../kexts/NVRM/patches/610-backlight-register-log.patch
+          git -C .deps/open-gpu-kernel-modules apply --directory=src/nvidia-modeset ../../kexts/NVRM/patches/610-setmode-reason.patch
+          git -C .deps/open-gpu-kernel-modules apply --directory=src/nvidia-modeset ../../kexts/NVRM/patches/610-backlight-register-log.patch
       - name: Build and link the native Intel kexts
         run: python3 ci/build-macos-kexts.py --vendor .deps/open-gpu-kernel-modules --output build-out --jobs 4
       - name: Replace only NVRM in the checksum-pinned official 2.4.3 package
