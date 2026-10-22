@@ -64,6 +64,19 @@ def export_vendor(root, vendor, component, out):
     sources = shlex.split((generated / "ci-sources.txt").read_text())
     spdm_sources = set(shlex.split((generated / "ci-libspdm-sources.txt").read_text()))
     spdm_flags = shlex.split((generated / "ci-libspdm-cflags.txt").read_text())
+    # The vendor Makefiles probe the compiler (TEST_CC_ARG) and, on x86_64 with a
+    # modern clang, append the Linux-kernel Spectre mitigations
+    # -mindirect-branch=thunk-extern / -mindirect-branch-register, and in
+    # nvidia-modeset also -mfunction-return=thunk-extern. macOS kexts provide no
+    # __x86_return_thunk, so every object compiled with those flags carries an
+    # undefined ___x86_return_thunk import the stock binaries do not have. Drop
+    # the whole mitigation family and the matching CF-protection flag: the Apple
+    # toolchain's own -mkernel defaults apply instead.
+    mitigations = {"-mindirect-branch=thunk-extern", "-mindirect-branch-register",
+                   "-mfunction-return=thunk-extern", "-fcf-protection=branch"}
+    flags = [f for f in flags if f not in mitigations]
+    cc_flags = [f for f in cc_flags if f not in mitigations]
+    cxx_flags = [f for f in cxx_flags if f not in mitigations]
     idname = "NV_RM_ID" if component == "nvidia" else "NV_KMS_ID"
     (generated / "g_nvid_string.c").write_text(
         f'const char {idname}[] = "nvidia id: NVIDIA UNIX Open Kernel Module for x86_64 615.78.08 Research Build (yuanjing-hash 2.5.2-bar-preflight-v2)";\n'
