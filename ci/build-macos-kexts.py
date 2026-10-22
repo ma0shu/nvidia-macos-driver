@@ -15,9 +15,9 @@ import tarfile
 import time
 import urllib.request
 
-NVIDIA_COMMIT = "e4a5faa2567f28c8eabe0ebb6422b6d0abcf37eb"
-STOCK_URL = "https://github.com/nullmoth/nvidia-macos-driver/releases/download/v2.4.3/nullmoth-nvidia-2.4.3.tar.gz"
-STOCK_SHA256 = "e95a6a5d0ab8727bf88b77ddb77140fedeff845a294758d4b52761a40d0a3632"
+NVIDIA_COMMIT = "4bfe30bb78e7364959e59c16cfefd88e8c14670e"
+STOCK_URL = "https://github.com/nullmoth/nvidia-macos-driver/releases/download/v2.5.2/nullmoth-nvidia-2.5.2.tar.gz"
+STOCK_SHA256 = "b3c01bbdce788e6181636836c73653be19052e217442c87763923ed37296007d"
 
 
 def digest(path):
@@ -66,7 +66,7 @@ def export_vendor(root, vendor, component, out):
     spdm_flags = shlex.split((generated / "ci-libspdm-cflags.txt").read_text())
     idname = "NV_RM_ID" if component == "nvidia" else "NV_KMS_ID"
     (generated / "g_nvid_string.c").write_text(
-        f'const char {idname}[] = "nvidia id: NVIDIA UNIX Open Kernel Module for x86_64 610.57.04 Research Build (yuanjing-hash 2.4.3-bar-preflight-v1)";\n'
+        f'const char {idname}[] = "nvidia id: NVIDIA UNIX Open Kernel Module for x86_64 615.78.08 Research Build (yuanjing-hash 2.5.2-bar-preflight-v2)";\n'
         f'const char *const p{idname} = {idname} + 11;\n')
     return directory, flags, sources, spdm_sources, spdm_flags, cc_flags, cxx_flags
 
@@ -181,8 +181,8 @@ def main():
     resource = Path(run(["xcrun", "clang", "-print-resource-dir"]))
     if not (headers / "IOKit/IOLib.h").is_file():
         raise RuntimeError(f"Kernel SDK headers unavailable: {headers}")
-    proof = {"status": "BUILDING", "experiment": "bar-preflight-v1",
-             "upstream": "v2.4.3", "nvidia_commit": NVIDIA_COMMIT,
+    proof = {"status": "BUILDING", "experiment": "bar-preflight-v2",
+             "upstream": "v2.5.2", "nvidia_commit": NVIDIA_COMMIT,
              "fork_commit": run(["git", "rev-parse", "HEAD"], cwd=root),
              "sdk": str(sdk), "hardware_tested": False, "installed": False}
     (out / "build-proof.json").write_text(json.dumps(proof, indent=2))

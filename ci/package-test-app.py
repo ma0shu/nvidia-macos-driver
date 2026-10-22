@@ -8,18 +8,18 @@ import subprocess
 root = Path(__file__).resolve().parents[1]
 app = root / ".deps/1401"
 out = root / "build-out"
-expected = "485dfe26b6dc06bd6e2dec780db844633dfe7b49"
+expected = "fc09d19530b4e6aca0b2b41416cbb16440531911"
 actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=app, text=True).strip()
 if actual != expected:
     raise SystemExit("Installer source commit mismatch")
-package = out / "nullmoth-2.4.3-rtx6000-bar-preflight-v1.tar.gz"
+package = out / "nullmoth-2.5.2-rtx6000-bar-preflight-v2.tar.gz"
 sha = hashlib.sha256(package.read_bytes()).hexdigest()
 main = app / "mac/Sources/main.swift"
 source = main.read_text()
-assert source.count('static let name = "nullmoth-nvidia-2.4.3.tar.gz"') == 1
-source = source.replace('static let name = "nullmoth-nvidia-2.4.3.tar.gz"', f'static let name = "{package.name}"')
-source = source.replace('static let sha256 = "e95a6a5d0ab8727bf88b77ddb77140fedeff845a294758d4b52761a40d0a3632"', f'static let sha256 = "{sha}"', 1)
-source = source.replace('window.title = "1401";', 'window.title = "1401 - RTX6000 BAR Preflight TEST 2.4.3";', 1)
+assert source.count('static let name = "nullmoth-nvidia-2.5.2.tar.gz"') == 1
+source = source.replace('static let name = "nullmoth-nvidia-2.5.2.tar.gz"', f'static let name = "{package.name}"')
+source = source.replace('static let sha256 = "b3c01bbdce788e6181636836c73653be19052e217442c87763923ed37296007d"', f'static let sha256 = "{sha}"', 1)
+source = source.replace('window.title = "1401";', 'window.title = "1401 - RTX6000 BAR Preflight TEST 2.5.2";', 1)
 needle = '        c.append(fm.urls(for: .downloadsDirectory, in: .userDomainMask)[0].appendingPathComponent(Package.name))'
 assert source.count(needle) == 1
 source = source.replace(needle, needle + '\n        c.append(Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent(Package.name))')
@@ -44,7 +44,7 @@ subprocess.run(["xcrun", "lipo", str(bundle / "Contents/MacOS/1401"), "-verify_a
 for name in ("nullmoth-setup.sh", "nullmoth-uninstall.sh", "NullMothSafe.efi"):
     upstream = subprocess.check_output(["git", "show", f"{expected}:mac/Resources/{name}"], cwd=app)
     assert upstream == (bundle / "Contents/Resources" / name).read_bytes(), name
-zipfile = out / "1401-Mac-2.4.3-RTX6000-BAR-Preflight-Test.zip"
+zipfile = out / "1401-Mac-2.5.2-RTX6000-BAR-Preflight-Test.zip"
 subprocess.run(["ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", str(bundle), str(zipfile)], check=True)
 with (out / "SHA256SUMS.txt").open("a") as sums:
     sums.write(f"{hashlib.sha256(zipfile.read_bytes()).hexdigest()}  {zipfile.name}\n")

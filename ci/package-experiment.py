@@ -11,8 +11,8 @@ import tarfile
 import urllib.request
 from importlib.machinery import SourceFileLoader
 
-STOCK_URL = "https://github.com/nullmoth/nvidia-macos-driver/releases/download/v2.4.3/nullmoth-nvidia-2.4.3.tar.gz"
-STOCK_SHA256 = "e95a6a5d0ab8727bf88b77ddb77140fedeff845a294758d4b52761a40d0a3632"
+STOCK_URL = "https://github.com/nullmoth/nvidia-macos-driver/releases/download/v2.5.2/nullmoth-nvidia-2.5.2.tar.gz"
+STOCK_SHA256 = "b3c01bbdce788e6181636836c73653be19052e217442c87763923ed37296007d"
 
 
 def digest(path):
@@ -43,7 +43,7 @@ def main():
     if out == root or not out.is_relative_to(root):
         raise SystemExit("Output must be a build directory inside this checkout.")
     proof = json.loads((out / "build-proof.json").read_text())
-    if proof["status"] != "KEXTS_COMPILED_HARDWARE_NOT_TESTED" or proof["experiment"] != "bar-preflight-v1":
+    if proof["status"] != "KEXTS_COMPILED_HARDWARE_NOT_TESTED" or proof["experiment"] != "bar-preflight-v2":
         raise SystemExit("Both kext builds must succeed before packaging.")
     for name in ("NVRM", "NVRMFB"):
         p = out / "kexts" / (name + ".kext") / "Contents/MacOS" / name
@@ -51,7 +51,7 @@ def main():
             magic, cpu, _, kind = struct.unpack("<4I", f.read(16))
         if (magic, cpu, kind) != (0xfeedfacf, 0x1000007, 11):
             raise SystemExit(f"Unexpected kext format: {name}")
-    stock = out / "stock-2.4.3.tar.gz"
+    stock = out / "stock-2.5.2.tar.gz"
     with urllib.request.urlopen(STOCK_URL, timeout=120) as response, stock.open("wb") as f:
         shutil.copyfileobj(response, f)
     if digest(stock) != STOCK_SHA256:
@@ -73,16 +73,16 @@ def main():
         shutil.copytree(out / "kexts" / (name + ".kext"), target)
     proof["replaced_kexts"] = ["NVRM"]
     proof["stock_components_retained"] = ["NVRMFB", "NVAccel", "NVRMAGDC", "all user-space and firmware files", "official install and uninstall scripts"]
-    proof["package_note"] = "Personal small-BAR research build based on NullMoth 2.4.3. Not hardware validated."
-    (package / "Library/NullMoth/bar-preflight-v1.json").parent.mkdir(parents=True, exist_ok=True)
-    (package / "Library/NullMoth/bar-preflight-v1.json").write_text(json.dumps(proof, indent=2) + "\n")
+    proof["package_note"] = "Personal small-BAR research build based on NullMoth 2.5.2. Not hardware validated."
+    (package / "Library/NullMoth/bar-preflight-v2.json").parent.mkdir(parents=True, exist_ok=True)
+    (package / "Library/NullMoth/bar-preflight-v2.json").write_text(json.dumps(proof, indent=2) + "\n")
     (package / "EXPERIMENTAL-BUILD.json").write_text(json.dumps(proof, indent=2) + "\n")
     checksum = package / "SHA256SUMS"
     lines = [f"{digest(p)}  {p.relative_to(package).as_posix()}" for p in sorted(package.rglob("*"))
              if p.is_file() and p != checksum and not p.is_symlink()]
     checksum.write_text("\n".join(lines) + "\n")
-    suffix = "bar-preflight-v1"
-    archive = out / f"nullmoth-2.4.3-rtx6000-{suffix}.tar.gz"
+    suffix = "bar-preflight-v2"
+    archive = out / f"nullmoth-2.5.2-rtx6000-{suffix}.tar.gz"
     with tarfile.open(archive, "w:gz") as tf:
         tf.add(package, arcname="pkgroot")
     (out / "SHA256SUMS.txt").write_text(f"{digest(archive)}  {archive.name}\n")

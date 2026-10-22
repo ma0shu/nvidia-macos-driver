@@ -14,7 +14,7 @@
              }
          }
  
-@@ -3457,6 +3464,21 @@ static NvBool NvKmsKapiRequestedModeSetConfigToKms(
+@@ -3457,5 +3464,20 @@ static NvBool NvKmsKapiRequestedModeSetConfigToKms(
          paramsHead->viewPortSizeIn.height =
              headModeSetConfig->mode.timings.vVisible;
  
