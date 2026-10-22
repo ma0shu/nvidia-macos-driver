@@ -2,7 +2,7 @@
 
 The framebuffer and accelerator allocation interface changes must be built and installed together. Use the NVRMFB framebuffer source and the matching NVRM headers from this revision.
 
-All patches apply to NVIDIA's `open-gpu-kernel-modules` tag `615.78.08` (commit `4bfe30bb78e7364959e59c16cfefd88e8c14670e`). The modeset patches are applied with `git apply --directory=src/nvidia-modeset` from the vendor tree root, as the workflow does.
+All patches apply to NVIDIA's `open-gpu-kernel-modules` tag `615.78.08` (annotated tag `4bfe30bb78e7364959e59c16cfefd88e8c14670e`, peeled commit `1a82fbfda8f321b056eb3568850f9316c5e465c5`). The modeset patches are applied with `git apply --directory=src/nvidia-modeset` from the vendor tree root, as the workflow does.
 
 `615-display-completion.patch` implements the mapped flip notifier query and resets the selected slot for each committed surface. NVIDIA modeset treats the BEGUN notifier state as the latched flip; FINISHED is also accepted. Invalid or unavailable notifier state keeps the transaction pending. 615.78.08 declares the `getFlipPendingStatus` slot in `nvkms-kapi.h` but ships no implementation, so the patch adds `GetFlipPendingStatus` (using the vendor's own `nvKmsParseNotifier`, `NVKMS_KAPI_NOTIFIER_INDEX` and `NVKMS_NOTIFIER_STATUS_*`) and wires it into the function table.
 

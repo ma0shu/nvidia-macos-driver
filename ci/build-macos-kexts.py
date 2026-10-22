@@ -15,7 +15,7 @@ import tarfile
 import time
 import urllib.request
 
-NVIDIA_COMMIT = "4bfe30bb78e7364959e59c16cfefd88e8c14670e"
+NVIDIA_COMMIT = "1a82fbfda8f321b056eb3568850f9316c5e465c5"
 STOCK_URL = "https://github.com/nullmoth/nvidia-macos-driver/releases/download/v2.5.2/nullmoth-nvidia-2.5.2.tar.gz"
 STOCK_SHA256 = "b3c01bbdce788e6181636836c73653be19052e217442c87763923ed37296007d"
 
